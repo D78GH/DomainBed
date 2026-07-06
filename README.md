@@ -1,3 +1,5 @@
+# This is a copy of the DomainBed research suite developed by Facebook and includes additional algorithms that have been implemented and evaluated within this codebase.
+
 # Welcome to DomainBed
 
 DomainBed is a PyTorch suite containing benchmark datasets and algorithms for domain generalization, as introduced in [In Search of Lost Domain Generalization](https://arxiv.org/abs/2007.01434).
