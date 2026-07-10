@@ -387,7 +387,7 @@ class MultipleEnvironmentImageFolder(MultipleDomainDataset):
 
         self.datasets = []
         for i, environment in enumerate(environments):
-
+            print("Loading environment:", environment)
             if augment and (i not in test_envs):
                 env_transform = augment_transform
             else:
@@ -409,12 +409,26 @@ class VLCS(MultipleEnvironmentImageFolder):
         self.dir = os.path.join(root, "VLCS/")
         super().__init__(self.dir, test_envs, hparams['data_augmentation'], hparams)
 
+# class PACS(MultipleEnvironmentImageFolder):
+#     CHECKPOINT_FREQ = 300
+#     ENVIRONMENTS = ["art_painting", "cartoon", "photo", "sketch"]
+#     def __init__(self, root, test_envs, hparams):
+#         self.dir = os.path.join(root, "PACS/")
+#         super().__init__(self.dir, test_envs, hparams['data_augmentation'], hparams)
+
 class PACS(MultipleEnvironmentImageFolder):
     CHECKPOINT_FREQ = 300
-    ENVIRONMENTS = ["A", "C", "P", "S"]
+    ENVIRONMENTS = ["art_painting", "cartoon", "photo", "sketch"]
+
     def __init__(self, root, test_envs, hparams):
+        print("USING PACS CLASS")
         self.dir = os.path.join(root, "PACS/")
-        super().__init__(self.dir, test_envs, hparams['data_augmentation'], hparams)
+        super().__init__(
+            self.dir,
+            test_envs,
+            hparams['data_augmentation'],
+            hparams
+        )
 
 class DomainNet(MultipleEnvironmentImageFolder):
     CHECKPOINT_FREQ = 1000

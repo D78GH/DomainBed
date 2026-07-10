@@ -171,10 +171,14 @@ class ResNet(torch.nn.Module):
     def __init__(self, input_shape, hparams):
         super(ResNet, self).__init__()
         if hparams['resnet18']:
-            self.network = torchvision.models.resnet18(pretrained=True)
+            self.network = torchvision.models.resnet18(
+                weights=torchvision.models.ResNet18_Weights.DEFAULT
+            )
             self.n_outputs = 512
         else:
-            self.network = torchvision.models.resnet50(pretrained=True)
+            self.network = torchvision.models.resnet50(
+                weights=torchvision.models.ResNet50_Weights.DEFAULT
+            )
             self.n_outputs = 2048
 
         if hparams['resnet50_augmix']:
@@ -288,13 +292,12 @@ class ContextNet(nn.Module):
     def forward(self, x):
         return self.context_net(x)
 
-
 def Featurizer(input_shape, hparams):
     """Auto-select an appropriate featurizer for the given input shape."""
     if len(input_shape) == 1:
-        if hparams.get('identity_features', False): # JP added
-            return IdentityFeaturizer(input_shape) # JP added
-        return MLP(input_shape[0], hparams["mlp_width"], hparams)
+        # if hparams.get('identity_features', False): # JP added
+        return IdentityFeaturizer(input_shape) # JP added
+    # return MLP(input_shape[0], hparams["mlp_width"], hparams)
     elif input_shape[1:3] == (28, 28):
         return MNIST_CNN(input_shape)
     elif input_shape[1:3] == (32, 32):
