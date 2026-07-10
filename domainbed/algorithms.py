@@ -61,7 +61,7 @@ ALGORITHMS = [
     'MLDG2_PMCL_GlobalEMA2', #JP added
     'EMA_PMCL_Proj', #JP added
     'EMA_PMCL_Proj2', #JP added
-    'EMA_PMCL_Proj3', #JP added
+    'EMA_PMCL_Proj2_JS', #JP added   
     'CORAL',
     'MMD',
     'DANN',
@@ -6006,7 +6006,7 @@ class EMA_PMCL_Proj(Algorithm):
         self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
 
         # -------------------------
-        # Projection head (IMPORTANT)
+        # Projection head
         # -------------------------
         proj_dim = hparams.get("proj_dim", 128)
 
@@ -6168,13 +6168,14 @@ class EMA_PMCL_Proj(Algorithm):
             "proto": proto_loss.item(),
         }
 
-class EMA_PMCL_Proj2(nn.Module):
+class EMA_PMCL_Proj2(Algorithm):
     """
     Stable DomainBed-compatible EMA + Prototype + Alignment model
+    Prototype loss takes only the positive term
     """
 
     def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__()
+        super().__init__(input_shape, num_classes, num_domains, hparams)
 
         # -------------------------
         # Backbone
@@ -6198,7 +6199,7 @@ class EMA_PMCL_Proj2(nn.Module):
         self.network = nn.Sequential(self.featurizer, self.classifier)
 
         # -------------------------
-        # EMA teacher (CRITICAL FIX)
+        # EMA teacher
         # -------------------------
         self.ema_decay = hparams.get("ema_decay", 0.99)
 
@@ -6231,7 +6232,7 @@ class EMA_PMCL_Proj2(nn.Module):
         )
 
     # =========================================================
-    # EMA UPDATE (SAFE - NO INPLACE GRAPH OPS)
+    # EMA UPDATE
     # =========================================================
     @torch.no_grad()
     def update_ema(self):
@@ -6243,7 +6244,7 @@ class EMA_PMCL_Proj2(nn.Module):
             )
 
     # =========================================================
-    # EMA FORWARD (SAFE)
+    # EMA FORWARD
     # =========================================================
     @torch.no_grad()
     def ema_forward(self, x):
@@ -6276,7 +6277,11 @@ class EMA_PMCL_Proj2(nn.Module):
             c_item = int(c.item())
             if c_item in self.prototype_memory:
                 mem = self.prototype_memory[c_item]
-                loss = loss + (1 - F.cosine_similarity(proto, mem, dim=0))
+                
+                # Positives
+                positive = 1 - F.cosine_similarity(proto, mem, dim=0)
+                
+                loss += positive
                 count += 1
 
         return loss / max(count, 1)
@@ -6289,7 +6294,7 @@ class EMA_PMCL_Proj2(nn.Module):
         return F.mse_loss(f, z.detach())
 
     # =========================================================
-    # MEMORY UPDATE (SAFE - NO GRAD)
+    # MEMORY UPDATE
     # =========================================================
     @torch.no_grad()
     def update_memory(self, features, labels):
@@ -6374,52 +6379,60 @@ class EMA_PMCL_Proj2(nn.Module):
             "ema": ema_loss.item(),
         }
 
-class EMA_PMCL_Proj3(Algorithm):
+class EMA_PMCL_Proj2_JS(Algorithm):
     """
-    Stable DG version of EMA_PMCL_Proj
-
-    Core idea:
-    - ERM backbone for classification stability
-    - Projection head ONLY for alignment regularisation
-    - EMA teacher for feature smoothing
-    - Weak prototype alignment (no CE over prototypes)
-    - JS Divergence used to compute ema_loss
+    Stable DomainBed-compatible EMA + Prototype + Alignment model
+    Prototype loss takes only the positive term
     """
 
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super().__init__(input_shape, num_classes, num_domains, hparams)
 
         # -------------------------
-        # Networks
+        # Backbone
         # -------------------------
+        
         self.featurizer = networks.Featurizer(input_shape, hparams)
-        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
+        feat_dim = self.featurizer.n_outputs
+
+        self.classifier = nn.Linear(feat_dim, num_classes)
 
         proj_dim = hparams.get("proj_dim", 128)
+
         self.projection = nn.Sequential(
-            nn.Linear(self.featurizer.n_outputs, proj_dim),
+            nn.Linear(feat_dim, proj_dim),
             nn.ReLU(),
             nn.Linear(proj_dim, proj_dim)
         )
 
-        self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.align_proj = nn.Linear(feat_dim, proj_dim)
 
-        self.align_proj = nn.Linear(512, 128)
+        # full model
+        self.network = nn.Sequential(self.featurizer, self.classifier)
 
         # -------------------------
         # EMA teacher
         # -------------------------
-        self.use_ema = True
         self.ema_decay = hparams.get("ema_decay", 0.99)
-        self._init_ema()
+
+        self.ema_featurizer = copy.deepcopy(self.featurizer)
+        for p in self.ema_featurizer.parameters():
+            p.requires_grad = False
+
+        self.ema_classifier = copy.deepcopy(self.classifier)
+
+        for p in self.ema_classifier.parameters():
+            p.requires_grad = False
+        
+        self.js_weight = hparams.get("js_weight", 0.1)
 
         # -------------------------
-        # Prototype memory (weak)
+        # Prototype memory
         # -------------------------
         self.prototype_memory = {}
 
         # -------------------------
-        # Loss hyperparams
+        # Loss weights
         # -------------------------
         self.proto_weight = hparams.get("proto_weight", 0.1)
         self.align_weight = hparams.get("align_weight", 0.05)
@@ -6431,57 +6444,49 @@ class EMA_PMCL_Proj3(Algorithm):
         self.optimizer = torch.optim.Adam(
             list(self.featurizer.parameters()) +
             list(self.classifier.parameters()) +
-            list(self.projection.parameters()),
+            list(self.projection.parameters()) +
+            list(self.align_proj.parameters()),
             lr=hparams["lr"],
             weight_decay=hparams.get("weight_decay", 5e-5),
         )
 
     # =========================================================
-    # EMA MODULE
+    # EMA UPDATE
     # =========================================================
-    def _init_ema(self):
-        self.ema_state = {
-            k: v.detach().clone()
-            for k, v in self.featurizer.state_dict().items()
-        }
-
     @torch.no_grad()
-    def _update_ema(self):
-        for k, v in self.featurizer.state_dict().items():
-            self.ema_state[k].mul_(self.ema_decay).add_(
-                v.detach(), alpha=1 - self.ema_decay
+    def update_ema(self):
+        for p_ema, p in zip(
+            self.ema_featurizer.parameters(),
+            self.featurizer.parameters()
+        ):
+            p_ema.data = (
+                self.ema_decay * p_ema.data +
+                (1.0 - self.ema_decay) * p.data
             )
 
-    def _ema_forward(self, x):
-        backup = self.featurizer.state_dict()
-        self.featurizer.load_state_dict(self.ema_state)
-        feats = self.featurizer(x)
-        self.featurizer.load_state_dict(backup)
-        return feats
+        for p_ema, p in zip(
+            self.ema_classifier.parameters(),
+            self.classifier.parameters()
+        ):
+            p_ema.data = (
+                self.ema_decay * p_ema.data +
+                (1.0 - self.ema_decay) * p.data
+            )
+
+    # =========================================================
+    # EMA FORWARD
+    # =========================================================
+    @torch.no_grad()
+    def ema_forward(self, x):
+        return self.ema_featurizer(x)
 
     # =========================================================
     # PREDICT
     # =========================================================
-    # def predict(self, x):
-    #     x = x.view(x.size(0), -1)
-    #     f = self.featurizer(x)
-    #     return self.classifier(f)
-
     def predict(self, x):
-        logits, _, _ = self.forward(x)
-        return logits
-
-    # =========================================================
-    # FORWARD
-    # =========================================================
-    def forward(self, x):
         x = x.view(x.size(0), -1)
-
-        features = self.featurizer(x)
-        logits = self.classifier(features)
-        z = self.projection(features)
-
-        return logits, features, z
+        f = self.featurizer(x)
+        return self.classifier(f)
 
     # =========================================================
     # LOSSES
@@ -6499,9 +6504,14 @@ class EMA_PMCL_Proj3(Algorithm):
             mask = labels == c
             proto = features[mask].mean(dim=0)
 
-            if c.item() in self.prototype_memory:
-                mem = self.prototype_memory[c.item()]
-                loss += 1 - F.cosine_similarity(proto, mem, dim=0)
+            c_item = int(c.item())
+            if c_item in self.prototype_memory:
+                mem = self.prototype_memory[c_item]
+                
+                # Positives
+                positive = 1 - F.cosine_similarity(proto, mem, dim=0)
+                
+                loss += positive
                 count += 1
 
         return loss / max(count, 1)
@@ -6510,14 +6520,13 @@ class EMA_PMCL_Proj3(Algorithm):
         f = F.normalize(f, dim=1)
         z = F.normalize(z, dim=1)
 
-        # project f to z space (or vice versa)
-        f = self.align_proj(f)   # 512 → 128 (must exist)
-
+        f = self.align_proj(f)
         return F.mse_loss(f, z.detach())
 
     # =========================================================
     # MEMORY UPDATE
     # =========================================================
+    @torch.no_grad()
     def update_memory(self, features, labels):
         features = F.normalize(features, dim=1)
 
@@ -6525,13 +6534,37 @@ class EMA_PMCL_Proj3(Algorithm):
             mask = labels == c
             proto = features[mask].mean(dim=0)
 
-            c = int(c.item())
-            if c in self.prototype_memory:
-                self.prototype_memory[c] = (
-                    0.9 * self.prototype_memory[c] + 0.1 * proto
+            c_item = int(c.item())
+
+            if c_item in self.prototype_memory:
+                self.prototype_memory[c_item] = (
+                    0.9 * self.prototype_memory[c_item] +
+                    0.1 * proto
                 )
             else:
-                self.prototype_memory[c] = proto.clone()
+                self.prototype_memory[c_item] = proto.clone()
+
+    # JS divergence
+    def js_divergence(self, student_logits, teacher_logits):
+
+        student_probs = F.softmax(student_logits, dim=1)
+        teacher_probs = F.softmax(teacher_logits, dim=1)
+
+        mean_probs = 0.5 * (student_probs + teacher_probs)
+
+        kl_student = F.kl_div(
+            torch.log(student_probs + 1e-8),
+            mean_probs,
+            reduction="batchmean"
+        )
+
+        kl_teacher = F.kl_div(
+            torch.log(teacher_probs + 1e-8),
+            mean_probs,
+            reduction="batchmean"
+        )
+
+        return 0.5 * (kl_student + kl_teacher)
 
     # =========================================================
     # TRAIN STEP
@@ -6546,61 +6579,54 @@ class EMA_PMCL_Proj3(Algorithm):
         x = x.view(x.size(0), -1)
 
         # -------------------------
-        # Student forward
+        # EMA teacher
+        # -------------------------
+        with torch.no_grad():
+            f_t = self.ema_forward(x)
+            teacher_logits = self.ema_classifier(f_t)
+
+        # -------------------------
+        # Student
         # -------------------------
         f = self.featurizer(x)
         logits = self.classifier(f)
         z = self.projection(f)
 
         # -------------------------
-        # EMA teacher features
-        # -------------------------
-        f_t = self._ema_forward(x)
-
-        # -------------------------
         # Losses
         # -------------------------
         ce = self.ce_loss(logits, y)
-
-        align = self.alignment_loss(f, z)
-
         proto = self.prototype_loss(f, y)
-
-        # ema_loss = F.mse_loss(f, f_t)
-        p_s = F.softmax(logits / 2.0, dim=1)
-        p_t = F.softmax(self.classifier(f_t) / 2.0, dim=1)
-
-        m = 0.5 * (p_s + p_t)
-
-        ema_loss = 0.5 * (
-            F.kl_div((p_s + 1e-8).log(), m, reduction="batchmean") +
-            F.kl_div((p_t + 1e-8).log(), m, reduction="batchmean")
+        align = self.alignment_loss(f, z)
+        ema_loss = F.mse_loss(f, f_t)
+        js_loss = self.js_divergence(
+            logits,
+            teacher_logits
         )
-
         # -------------------------
-        # Update memory (NO gradient)
+        # Memory update
         # -------------------------
         self.update_memory(f.detach(), y)
 
         # -------------------------
-        # TOTAL LOSS
+        # Total loss
         # -------------------------
         loss = (
-            ce
-            + self.proto_weight * proto
-            + self.align_weight * align
-            + self.ema_weight * ema_loss
+            ce +
+            self.proto_weight * proto +
+            self.align_weight * align +
+            self.ema_weight * ema_loss +
+            self.js_weight * js_loss
         )
-
         # -------------------------
-        # OPTIMIZATION
+        # Optimisation
         # -------------------------
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # EMA update
-        self._update_ema()
+        # EMA update (AFTER step)
+        self.update_ema()
 
         return {
             "loss": loss.item(),
@@ -6608,4 +6634,5 @@ class EMA_PMCL_Proj3(Algorithm):
             "proto": float(proto),
             "align": align.item(),
             "ema": ema_loss.item(),
+            "js": js_loss.item(),
         }
