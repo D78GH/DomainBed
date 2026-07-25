@@ -130,6 +130,80 @@ class MetaMLP(nn.Module):
 
         return logits, end_points
 
+class ProtoinitMetaMLP(nn.Module):
+    """
+    Two-layer MLP matching Li et al.'s implementation.
+
+    Extended with prototype-conditioned initialization.
+    """
+
+    def __init__(self, n_inputs, n_outputs, hparams):
+        super().__init__()
+
+        hidden_dim = hparams["mlp_width"]
+
+        self.fc1 = nn.Linear(n_inputs, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, n_outputs)
+
+        self.n_outputs = hidden_dim
+
+    def forward(
+        self,
+        x,
+        meta_loss=None,
+        meta_step_size=None,
+        stop_gradient=False,
+        init_weights=None,
+    ):
+
+        if init_weights is None:
+
+            fc1_weight = self.fc1.weight
+            fc1_bias = self.fc1.bias
+
+            fc2_weight = self.fc2.weight
+            fc2_bias = self.fc2.bias
+
+        else:
+
+            fc1_weight = init_weights["fc1_weight"]
+            fc1_bias = init_weights["fc1_bias"]
+
+            fc2_weight = init_weights["fc2_weight"]
+            fc2_bias = init_weights["fc2_bias"]
+
+
+        x = linear(
+            inputs=x,
+            weight=fc1_weight,
+            bias=fc1_bias,
+            meta_loss=meta_loss,
+            meta_step_size=meta_step_size,
+            stop_gradient=stop_gradient,
+        )
+
+        x = F.relu(x)
+
+        features = x
+
+
+        logits = linear(
+            inputs=x,
+            weight=fc2_weight,
+            bias=fc2_bias,
+            meta_loss=meta_loss,
+            meta_step_size=meta_step_size,
+            stop_gradient=stop_gradient,
+        )
+
+
+        end_points = {
+            "Features": features,
+            "Predictions": F.softmax(logits, dim=-1)
+        }
+
+        return logits, end_points
+
 class DinoV2(torch.nn.Module):
     """ """
     def __init__(self,input_shape, hparams):
