@@ -1,245 +1,0 @@
-Environment:
-	Python: 3.12.3
-	PyTorch: 2.13.0+cu130
-	Torchvision: 0.28.0+cu130
-	CUDA: 13.0
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/cuda/__init__.py:188: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /__w/pytorch/pytorch/c10/cuda/CUDAFunctions.cpp:119.)
-  return torch._C._cuda_getDeviceCount() > 0
-	CUDNN: 92000
-	NumPy: 1.26.4
-	PIL: 10.3.0
-Args:
-	algorithm: ERM
-	checkpoint_freq: None
-	data_dir: ./domainbed/data
-	dataset: PACS
-	holdout_fraction: 0.2
-	hparams: None
-	hparams_seed: 0
-	output_dir: train_output
-	save_model_every_checkpoint: False
-	seed: 0
-	skip_model_save: False
-	steps: 10
-	task: domain_generalization
-	test_envs: [2]
-	trial_seed: 0
-	uda_holdout_fraction: 0
-HParams:
-	batch_size: 32
-	class_balanced: False
-	data_augmentation: True
-	dinov2: False
-	freeze_bn: False
-	identity_features: False
-	lars: False
-	linear_steps: 500
-	lr: 5e-05
-	mlp_depth: 3
-	mlp_dropout: 0.0
-	mlp_width: 256
-	nonlinear_classifier: False
-	resnet18: False
-	resnet50_augmix: True
-	resnet_dropout: 0.0
-	vit: False
-	vit_attn_tune: False
-	vit_dropout: 0.0
-	weight_decay: 0.0
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:431: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:437: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torchvision/models/_utils.py:207: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
-  warnings.warn(
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torchvision/models/_utils.py:222: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ResNet50_Weights.IMAGENET1K_V1`. You can also use `weights=ResNet50_Weights.DEFAULT` to get the most up-to-date weights.
-  warnings.warn(msg)
-
-model.safetensors: reconstructing file:   0%|          |  0.00B /  102MB            [Amodel.safetensors: downloading bytes:           |  0.00B            
-model.safetensors: reconstructing file:   0%|          | 12.5kB /  102MB            [Amodel.safetensors: downloading bytes:           | 2.75kB            model.safetensors: downloading bytes:           |  136kB,   267B/s  model.safetensors: downloading bytes: 1         | 1.36MB, 13.2kB/s  model.safetensors: downloading bytes: #         | 10.3MB,  131kB/s  model.safetensors: downloading bytes: ##        | 21.4MB,  989kB/s  model.safetensors: downloading bytes: ###2      | 33.7MB, 2.04MB/s  
-model.safetensors: reconstructing file:  32%|###2      | 33.1MB /  102MB, 1.21kB/s  [Amodel.safetensors: downloading bytes: ####2     | 43.6MB, 3.76MB/s  
-model.safetensors: reconstructing file:  36%|###6      | 37.1MB /  102MB, 3.28MB/s  [A
-model.safetensors: reconstructing file:  49%|####8     | 50.0MB /  102MB, 3.50MB/s  [Amodel.safetensors: downloading bytes: #####2    | 53.3MB, 4.53MB/s  
-model.safetensors: reconstructing file:  55%|#####4    | 56.0MB /  102MB, 4.58MB/s  [A
-model.safetensors: reconstructing file:  60%|######    | 61.9MB /  102MB, 5.11MB/s  [Amodel.safetensors: downloading bytes: ######1   | 62.5MB, 5.09MB/s  
-model.safetensors: reconstructing file:  66%|######6   | 67.8MB /  102MB, 6.01MB/s  [Amodel.safetensors: downloading bytes: ######7   | 69.5MB, 5.95MB/s  
-model.safetensors: reconstructing file:  75%|#######4  | 76.5MB /  102MB, 6.04MB/s  [Amodel.safetensors: downloading bytes: #######3  | 75.7MB, 6.11MB/s  
-model.safetensors: reconstructing file:  83%|########2 | 84.9MB /  102MB, 6.79MB/s  [Amodel.safetensors: downloading bytes: #######8  | 80.9MB, 6.62MB/s  model.safetensors: downloading bytes: ########7 | 89.3MB, 7.32MB/s  model.safetensors: downloading bytes: #########1| 93.9MB, 7.17MB/s  
-model.safetensors: reconstructing file: 100%|##########|  102MB /  102MB, 7.54MB/s  [Amodel.safetensors: downloading bytes: ##########| 96.2MB, 7.58MB/s  model.safetensors: downloading bytes: ##########| 96.2MB, 7.58MB/s  
-model.safetensors: reconstructing file: 100%|##########|  102MB /  102MB, 8.22MB/s  
-Environment:
-	Python: 3.12.3
-	PyTorch: 2.13.0+cu130
-	Torchvision: 0.28.0+cu130
-	CUDA: 13.0
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/cuda/__init__.py:188: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /__w/pytorch/pytorch/c10/cuda/CUDAFunctions.cpp:119.)
-  return torch._C._cuda_getDeviceCount() > 0
-	CUDNN: 92000
-	NumPy: 1.26.4
-	PIL: 10.3.0
-Args:
-	algorithm: ERM
-	checkpoint_freq: None
-	data_dir: ./domainbed/data
-	dataset: PACS
-	holdout_fraction: 0.2
-	hparams: None
-	hparams_seed: 0
-	output_dir: train_output
-	save_model_every_checkpoint: False
-	seed: 0
-	skip_model_save: False
-	steps: 10
-	task: domain_generalization
-	test_envs: [2]
-	trial_seed: 0
-	uda_holdout_fraction: 0
-HParams:
-	batch_size: 32
-	class_balanced: False
-	data_augmentation: True
-	dinov2: False
-	freeze_bn: False
-	identity_features: False
-	lars: False
-	linear_steps: 500
-	lr: 5e-05
-	mlp_depth: 3
-	mlp_dropout: 0.0
-	mlp_width: 256
-	nonlinear_classifier: False
-	resnet18: False
-	resnet50_augmix: True
-	resnet_dropout: 0.0
-	vit: False
-	vit_attn_tune: False
-	vit_dropout: 0.0
-	weight_decay: 0.0
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:431: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:437: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torchvision/models/_utils.py:207: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
-  warnings.warn(
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torchvision/models/_utils.py:222: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ResNet50_Weights.IMAGENET1K_V1`. You can also use `weights=ResNet50_Weights.DEFAULT` to get the most up-to-date weights.
-  warnings.warn(msg)
-Environment:
-	Python: 3.12.3
-	PyTorch: 2.13.0+cu130
-	Torchvision: 0.28.0+cu130
-	CUDA: 13.0
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/cuda/__init__.py:188: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /__w/pytorch/pytorch/c10/cuda/CUDAFunctions.cpp:119.)
-  return torch._C._cuda_getDeviceCount() > 0
-	CUDNN: 92000
-	NumPy: 1.26.4
-	PIL: 10.3.0
-Args:
-	algorithm: ERM
-	checkpoint_freq: None
-	data_dir: ./domainbed/data
-	dataset: PACS
-	holdout_fraction: 0.2
-	hparams: None
-	hparams_seed: 0
-	output_dir: train_output
-	save_model_every_checkpoint: False
-	seed: 0
-	skip_model_save: False
-	steps: 10
-	task: domain_generalization
-	test_envs: [2]
-	trial_seed: 0
-	uda_holdout_fraction: 0
-HParams:
-	batch_size: 32
-	class_balanced: False
-	data_augmentation: True
-	dinov2: False
-	freeze_bn: False
-	identity_features: False
-	lars: False
-	linear_steps: 500
-	lr: 5e-05
-	mlp_depth: 3
-	mlp_dropout: 0.0
-	mlp_width: 256
-	nonlinear_classifier: False
-	resnet18: False
-	resnet50_augmix: True
-	resnet_dropout: 0.0
-	vit: False
-	vit_attn_tune: False
-	vit_dropout: 0.0
-	weight_decay: 0.0
-USING PACS CLASS
-Loading environment: art_painting
-Loading environment: cartoon
-Loading environment: photo
-Loading environment: sketch
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:431: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:437: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-Downloading: "https://download.pytorch.org/models/resnet50-11ad3fa6.pth" to /home/s2457428/.cache/torch/hub/checkpoints/resnet50-11ad3fa6.pth
-  0%|          | 0.00/97.8M [00:00<?, ?B/s]  2%|2         | 2.00M/97.8M [00:00<00:04, 20.1MB/s]  7%|7         | 7.12M/97.8M [00:00<00:02, 39.5MB/s] 18%|#8        | 18.0M/97.8M [00:00<00:01, 73.1MB/s] 29%|##8       | 28.1M/97.8M [00:00<00:00, 85.5MB/s] 40%|###9      | 38.8M/97.8M [00:00<00:00, 94.6MB/s] 51%|#####     | 49.6M/97.8M [00:00<00:00, 101MB/s]  61%|######1   | 60.1M/97.8M [00:00<00:00, 103MB/s] 72%|#######1  | 70.0M/97.8M [00:00<00:00, 87.1MB/s] 83%|########3 | 81.6M/97.8M [00:00<00:00, 96.6MB/s] 94%|#########3| 91.6M/97.8M [00:01<00:00, 98.9MB/s]100%|##########| 97.8M/97.8M [00:01<00:00, 90.4MB/s]
-env0_in_acc   env0_out_acc  env1_in_acc   env1_out_acc  env2_in_acc   env2_out_acc  env3_in_acc   env3_out_acc  epoch         loss          mem_gb        step          step_time    
-0.2403904820  0.1980440098  0.1220682303  0.1089743590  0.0778443114  0.0808383234  0.2531806616  0.2598726115  0.0000000000  1.9348649979  0.0000000000  0             80.003461837 
-0.5399633923  0.4816625917  0.6204690832  0.5747863248  0.6115269461  0.5958083832  0.5772900763  0.5757961783  0.2155688623  1.7882226970  0.0000000000  9             72.676769574 
-Environment:
-	Python: 3.12.3
-	PyTorch: 2.13.0+cu130
-	Torchvision: 0.28.0+cu130
-	CUDA: 13.0
-	CUDNN: 92000
-	NumPy: 1.26.4
-	PIL: 10.3.0
-Args:
-	algorithm: ERM
-	checkpoint_freq: None
-	data_dir: ./domainbed/data
-	dataset: PACS
-	holdout_fraction: 0.2
-	hparams: None
-	hparams_seed: 0
-	output_dir: train_output
-	save_model_every_checkpoint: False
-	seed: 0
-	skip_model_save: False
-	steps: 10
-	task: domain_generalization
-	test_envs: [2]
-	trial_seed: 0
-	uda_holdout_fraction: 0
-HParams:
-	batch_size: 32
-	class_balanced: False
-	data_augmentation: True
-	dinov2: False
-	freeze_bn: False
-	identity_features: False
-	lars: False
-	linear_steps: 500
-	lr: 5e-05
-	mlp_depth: 3
-	mlp_dropout: 0.0
-	mlp_width: 256
-	nonlinear_classifier: False
-	resnet18: False
-	resnet50_augmix: True
-	resnet_dropout: 0.0
-	vit: False
-	vit_attn_tune: False
-	vit_dropout: 0.0
-	weight_decay: 0.0
-USING PACS CLASS
-Loading environment: art_painting
-Loading environment: cartoon
-Loading environment: photo
-Loading environment: sketch
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:431: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-/home/s2457428/DomainBed/venv_domainbed/lib/python3.12/site-packages/torch/utils/data/dataloader.py:437: UserWarning: This DataLoader will create 8 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
-  self.check_worker_number_rationality()
-env0_in_acc   env0_out_acc  env1_in_acc   env1_out_acc  env2_in_acc   env2_out_acc  env3_in_acc   env3_out_acc  epoch         loss          mem_gb        step          step_time    
-0.2403904820  0.1980440098  0.1215351812  0.1089743590  0.0778443114  0.0808383234  0.2531806616  0.2598726115  0.0000000000  1.9348648787  9.1416444778  0             7.6308119297 
-0.5338621110  0.4816625917  0.6226012793  0.5811965812  0.6115269461  0.5988023952  0.5807888041  0.5745222930  0.2155688623  1.7878050274  9.3169078827  9             0.6668167909 
