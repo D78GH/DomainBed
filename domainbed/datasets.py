@@ -25,10 +25,14 @@ DATASETS = [
     # Big images
     "VLCS",
     "PACS",
-    "PACSFeatures", # JP added
-    "VLCSFeatures", # JP added
-    "OfficeHomeFeatures", # JP added
-    "DomainNetFeatures", # JP added
+    "PACSFeatures_ResNet50", # JP added
+    "VLCSFeatures_ResNet50", # JP added
+    "OfficeHomeFeatures_ResNet50", # JP added
+    "DomainNetFeatures_ResNet50", # JP added
+    "PACSFeatures_CLIP", # JP added
+    "VLCSFeatures_CLIP", # JP added
+    "OfficeHomeFeatures_CLIP", # JP added
+    "DomainNetFeatures_CLIP", # JP added
     "OfficeHome",
     "TerraIncognita",
     "DomainNet",
@@ -151,7 +155,7 @@ class HDF5Dataset(torch.utils.data.Dataset):
 
         return len(self.y)
 
-class PACSFeatures(MultipleDomainDataset):
+class PACSFeatures_ResNet50(MultipleDomainDataset):
 
     CHECKPOINT_FREQ = 300
 
@@ -175,20 +179,20 @@ class PACSFeatures(MultipleDomainDataset):
                 HDF5Dataset(
                     os.path.join(
                         root,
-                        f"{env}_features.hdf5"
+                        f"{env}.hdf5"
                     )
                 )
             )
 
 
-        self.input_shape = (512,)
+        self.input_shape = (2048,)
 
         max_label = max(dataset.y.max().item() for dataset in self.datasets)
         self.num_classes = max_label + 1
 
         print(f"Detected {self.num_classes} classes.")
 
-class VLCSFeatures(MultipleDomainDataset):
+class VLCSFeatures_ResNet50(MultipleDomainDataset):
 
     CHECKPOINT_FREQ = 300
 
@@ -211,20 +215,20 @@ class VLCSFeatures(MultipleDomainDataset):
                 HDF5Dataset(
                     os.path.join(
                         root,
-                        f"{env}_features.hdf5"
+                        f"{env}.hdf5"
                     )
                 )
             )
 
 
-        self.input_shape = (512,)
+        self.input_shape = (2048,)
 
         max_label = max(dataset.y.max().item() for dataset in self.datasets)
         self.num_classes = max_label + 1
 
         print(f"Detected {self.num_classes} classes.")
 
-class OfficeHomeFeatures(MultipleDomainDataset):
+class OfficeHomeFeatures_ResNet50(MultipleDomainDataset):
 
     CHECKPOINT_FREQ = 300
 
@@ -247,20 +251,20 @@ class OfficeHomeFeatures(MultipleDomainDataset):
                 HDF5Dataset(
                     os.path.join(
                         root,
-                        f"{env}_features.hdf5"
+                        f"{env}.hdf5"
                     )
                 )
             )
 
 
-        self.input_shape = (512,)
+        self.input_shape = (2048,)
 
         max_label = max(dataset.y.max().item() for dataset in self.datasets)
         self.num_classes = max_label + 1
 
         print(f"Detected {self.num_classes} classes.")
 
-class DomainNetFeatures(MultipleDomainDataset):
+class DomainNetFeatures_ResNet50(MultipleDomainDataset):
 
     CHECKPOINT_FREQ = 300
 
@@ -285,7 +289,154 @@ class DomainNetFeatures(MultipleDomainDataset):
                 HDF5Dataset(
                     os.path.join(
                         root,
-                        f"{env}_features.hdf5"
+                        f"{env}.hdf5"
+                    )
+                )
+            )
+
+
+        self.input_shape = (2048,)
+
+        max_label = max(dataset.y.max().item() for dataset in self.datasets)
+        self.num_classes = max_label + 1
+
+        print(f"Detected {self.num_classes} classes.")
+
+class PACSFeatures_CLIP(MultipleDomainDataset):
+
+    CHECKPOINT_FREQ = 300
+
+    ENVIRONMENTS = [
+        "art_painting",
+        "cartoon",
+        "photo",
+        "sketch"
+    ]
+
+
+    def __init__(self, root, test_envs, hparams):
+
+        super().__init__()
+
+        self.datasets = []
+
+        for env in self.ENVIRONMENTS:
+
+            self.datasets.append(
+                HDF5Dataset(
+                    os.path.join(
+                        root,
+                        f"{env}.hdf5"
+                    )
+                )
+            )
+
+
+        self.input_shape = (512,)
+
+        max_label = max(dataset.y.max().item() for dataset in self.datasets)
+        self.num_classes = max_label + 1
+
+        print(f"Detected {self.num_classes} classes.")
+
+class VLCSFeatures_CLIP(MultipleDomainDataset):
+
+    CHECKPOINT_FREQ = 300
+
+    ENVIRONMENTS = [
+        "Caltech101",
+        "LabelMe",
+        "SUN09",
+        "VOC2007"
+    ]
+
+    def __init__(self, root, test_envs, hparams):
+
+        super().__init__()
+
+        self.datasets = []
+
+        for env in self.ENVIRONMENTS:
+
+            self.datasets.append(
+                HDF5Dataset(
+                    os.path.join(
+                        root,
+                        f"{env}.hdf5"
+                    )
+                )
+            )
+
+
+        self.input_shape = (512,)
+
+        max_label = max(dataset.y.max().item() for dataset in self.datasets)
+        self.num_classes = max_label + 1
+
+        print(f"Detected {self.num_classes} classes.")
+
+class OfficeHomeFeatures_CLIP(MultipleDomainDataset):
+
+    CHECKPOINT_FREQ = 300
+
+    ENVIRONMENTS = [
+        "Real World",
+        "Product",
+        "Clipart",
+        "Art"
+    ]
+
+    def __init__(self, root, test_envs, hparams):
+
+        super().__init__()
+
+        self.datasets = []
+
+        for env in self.ENVIRONMENTS:
+
+            self.datasets.append(
+                HDF5Dataset(
+                    os.path.join(
+                        root,
+                        f"{env}.hdf5"
+                    )
+                )
+            )
+
+
+        self.input_shape = (512,)
+
+        max_label = max(dataset.y.max().item() for dataset in self.datasets)
+        self.num_classes = max_label + 1
+
+        print(f"Detected {self.num_classes} classes.")
+
+class DomainNetFeatures_CLIP(MultipleDomainDataset):
+
+    CHECKPOINT_FREQ = 300
+
+    ENVIRONMENTS = [
+        "sketch",
+        "real",
+        "quickdraw",
+        "painting",
+        "infograph",
+        "clipart"
+    ]
+
+    def __init__(self, root, test_envs, hparams):
+
+        super().__init__()
+
+        self.datasets = []
+
+        for env in self.ENVIRONMENTS:
+
+            self.datasets.append(
+                HDF5Dataset(
+                    os.path.join(
+                        root,
+                        f"{env}.hdf5"
                     )
                 )
             )
