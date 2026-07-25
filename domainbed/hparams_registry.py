@@ -46,6 +46,7 @@ def _hparams(algorithm, dataset, random_seed):
     _hparam('mlp_width', 256, lambda r: 256)
     _hparam('mlp_depth', 3, lambda r: 3)
     _hparam('mlp_dropout', 0.0, lambda r: 0.0)
+    _hparam('subset_fraction', 1.0, lambda r: 1.0)
 
     # Algorithm-specific hparam definitions. Each block of code below
     # corresponds to exactly one algorithm.
