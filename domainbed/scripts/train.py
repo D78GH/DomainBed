@@ -143,13 +143,22 @@ if __name__ == "__main__":
     if args.task == "domain_adaptation" and len(uda_splits) == 0:
         raise ValueError("Not enough unlabeled samples for domain adaptation.")
 
+    print("N_WORKERS =", dataset.N_WORKERS)
+
     train_loaders = [InfiniteDataLoader(
         dataset=env,
         weights=env_weights,
         batch_size=hparams['batch_size'],
-        num_workers=dataset.N_WORKERS)
+        # num_workers=dataset.N_WORKERS)
+        num_workers=0)
         for i, (env, env_weights) in enumerate(in_splits)
         if i not in args.test_envs]
+
+    print("Train loaders created")
+
+    print("Fetching first batch...")
+    batch = next(iter(train_loaders[0]))
+    print("First batch fetched")
 
     uda_loaders = [InfiniteDataLoader(
         dataset=env,
@@ -161,8 +170,7 @@ if __name__ == "__main__":
     eval_loaders = [FastDataLoader(
         dataset=env,
         batch_size=64,
-        num_workers=0)# JP added
-        # num_workers=dataset.N_WORKERS)
+        num_workers=dataset.N_WORKERS)
         for env, _ in (in_splits + out_splits + uda_splits)]
     eval_weights = [None for _, weights in (in_splits + out_splits + uda_splits)]
     eval_loader_names = ['env{}_in'.format(i)
@@ -202,18 +210,23 @@ if __name__ == "__main__":
         }
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
-
     last_results_keys = None
     for step in range(start_step, n_steps):
+        print("STEP START", step)
         step_start_time = time.time()
+
+        print("Getting minibatch...")
         minibatches_device = [(x.to(device), y.to(device))
             for x,y in next(train_minibatches_iterator)]
+        print("Minibatch moved to device")
         if args.task == "domain_adaptation":
             uda_device = [x.to(device)
                 for x,_ in next(uda_minibatches_iterator)]
         else:
             uda_device = None
+        print("Calling algorithm.update...")
         step_vals = algorithm.update(minibatches_device, uda_device)
+        print("algorithm.update finished")
         checkpoint_vals['step_time'].append(time.time() - step_start_time)
 
         for key, val in step_vals.items():
@@ -228,11 +241,25 @@ if __name__ == "__main__":
             for key, val in checkpoint_vals.items():
                 results[key] = np.mean(val)
 
+            # print("Finished evaluation")
+            print("Starting evaluation")
+            eval_start = time.time()
+
             evals = zip(eval_loader_names, eval_loaders, eval_weights)
+
             for name, loader, weights in evals:
+                print(f"Evaluating {name}...")
+                env_start = time.time()
+
                 acc = misc.accuracy(algorithm, loader, weights, device)
+
+                env_time = time.time() - env_start
+                print(f"Finished {name}: acc={acc:.4f}, time={env_time:.2f}s")
+
                 results[name+'_acc'] = acc
 
+            total_eval_time = time.time() - eval_start
+            print(f"Finished evaluation. Total evaluation time: {total_eval_time:.2f}s")
             results['mem_gb'] = torch.cuda.max_memory_allocated() / (1024.*1024.*1024.)
 
             results_keys = sorted(results.keys())
