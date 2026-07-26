@@ -165,7 +165,7 @@ def download_pacs(data_dir):
     os.makedirs(full_path, exist_ok=True)
 
     print("Loading PACS dataset...")
-    train_ds = load_dataset("flwrlabs/pacs", split="train")
+    train_ds = load_dataset("flwrlabs/pacs", data_files="/home/s2457428/DomainBed/domainbed/data/PACS/",  split="train")
 
     print(f"Dataset size: {len(train_ds)}")
 

@@ -568,7 +568,9 @@ class VLCS(MultipleEnvironmentImageFolder):
 #         super().__init__(self.dir, test_envs, hparams['data_augmentation'], hparams)
 
 class PACS(MultipleEnvironmentImageFolder):
+    # testing higher checkpoint freq and lower nsteps (previously set to 300 checkpoint_freq and default n_steps
     CHECKPOINT_FREQ = 300
+
     ENVIRONMENTS = ["art_painting", "cartoon", "photo", "sketch"]
 
     def __init__(self, root, test_envs, hparams):
