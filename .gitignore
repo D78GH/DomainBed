@@ -1,7 +1,7 @@
 __pycache__
 domainbed/facebook.py
 
-domainbed/data/*
+#domainbed/data/*
 train_output/*
 venv_mldg/*
 domainbed/results/*
