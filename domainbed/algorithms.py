@@ -54,7 +54,8 @@ ALGORITHMS = [
     'PMCL', #JP added - Batch Prototype Memory Contrastive Learning
     'LPMCL', #JP added - Learnable Prototype Memory Contrastive Learning
     'LPMCL_Mixup', #JP added
-    'MLDG2Memory', #JP added
+    'MLDG2Proto', #JP added
+    'MLDG2WeightedProto', #JP added
     'CORAL',
     'MMD',
     'DANN',
@@ -3995,7 +3996,7 @@ class MLDG2(Algorithm):
             "query_idx": int(query_idx),
         }
 
-class MLDG2Memory(MLDG2):
+class MLDG2Proto(MLDG2):
     """
     MLDG2 + Learnable Prototype Memory Alignment.
 
@@ -4336,7 +4337,7 @@ class MLDG2Memory(MLDG2):
 
         return logits
 
-class MLDG2Memory2(MLDG2):
+class MLDG2WeightedProto(MLDG2):
     """
     MLDG2 + Learnable Prototype Memory Alignment.
 
