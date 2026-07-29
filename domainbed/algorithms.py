@@ -53,9 +53,7 @@ ALGORITHMS = [
     'PrototypeMemory', #JP added
     'PMCL', #JP added - Batch Prototype Memory Contrastive Learning
     'LPMCL', #JP added - Learnable Prototype Memory Contrastive Learning
-    'LPMCL_Mixup', #JP added
-    'MLDG2Proto', #JP added
-    'MLDG2WeightedProto', #JP added
+    'MLDGWeightedProto', #JP added
     'CORAL',
     'MMD',
     'DANN',
@@ -3670,228 +3668,228 @@ class LPMCL(ERM):
         }
 
 
-class LPMCL_Mixup(ERM):
-    """
-    Prototype Memory Contrastive Learning with learnable prototype memory.
-    Does not store historical batch protoypes so no memory. 
+# class LPMCL_Mixup(ERM):
+#     """
+#     Prototype Memory Contrastive Learning with learnable prototype memory.
+#     Does not store historical batch protoypes so no memory. 
     
-    Class prototypes are trainable parameters updated through gradient descent.
-    Inspired by learnable prototypes: Li et al, Prototype Memory and Contrastive Learning Based Unsupervised Anomaly Detection for Time Series, 2026
+#     Class prototypes are trainable parameters updated through gradient descent.
+#     Inspired by learnable prototypes: Li et al, Prototype Memory and Contrastive Learning Based Unsupervised Anomaly Detection for Time Series, 2026
     
-    The prototypes act as global class anchors instead of a running sample-count weighted average.
-    Built on top of ERM.
+#     The prototypes act as global class anchors instead of a running sample-count weighted average.
+#     Built on top of ERM.
 
-    """
+#     """
 
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__(
-            input_shape,
-            num_classes,
-            num_domains,
-            hparams
-        )
-        self.hparams["mixup_alpha"] = hparams.get("mixup_alpha", 0.2)
+#     def __init__(self, input_shape, num_classes, num_domains, hparams):
+#         super().__init__(
+#             input_shape,
+#             num_classes,
+#             num_domains,
+#             hparams
+#         )
+#         self.hparams["mixup_alpha"] = hparams.get("mixup_alpha", 0.2)
         
-        self.num_classes = num_classes
+#         self.num_classes = num_classes
 
-        # Learnable prototype memory
-        feat_dim = self.featurizer.n_outputs
+#         # Learnable prototype memory
+#         feat_dim = self.featurizer.n_outputs
 
-        self.prototypes = nn.Parameter(
-            torch.randn(num_classes, feat_dim) * 0.02
-        )
+#         self.prototypes = nn.Parameter(
+#             torch.randn(num_classes, feat_dim) * 0.02
+#         )
 
-        self.temperature = hparams.get("proto_temperature", 0.07)
-        self.proto_weight = hparams.get("proto_weight", 1.0)
-        self.mem_weight = hparams.get("mem_weight", 0.1)
+#         self.temperature = hparams.get("proto_temperature", 0.07)
+#         self.proto_weight = hparams.get("proto_weight", 1.0)
+#         self.mem_weight = hparams.get("mem_weight", 0.1)
 
-        self.label_smoothing = hparams.get("label_smoothing", 0.1)
-        self.min_samples_per_class = hparams.get("proto_min_samples", 2)
-        self.min_classes = hparams.get("proto_min_classes", 2)
+#         self.label_smoothing = hparams.get("label_smoothing", 0.1)
+#         self.min_samples_per_class = hparams.get("proto_min_samples", 2)
+#         self.min_classes = hparams.get("proto_min_classes", 2)
 
-    def forward_features(
-        self,
-        x,
-        meta_loss=None,
-        meta_step_size=None,
-        stop_gradient=False,
-    ):
+#     def forward_features(
+#         self,
+#         x,
+#         meta_loss=None,
+#         meta_step_size=None,
+#         stop_gradient=False,
+#     ):
 
-        # MetaMLP
-        if isinstance(self.network, networks.MetaMLP):
+#         # MetaMLP
+#         if isinstance(self.network, networks.MetaMLP):
 
-            logits, end_points = self.network(
-                x,
-                meta_loss=meta_loss,
-                meta_step_size=meta_step_size,
-                stop_gradient=stop_gradient,
-            )
+#             logits, end_points = self.network(
+#                 x,
+#                 meta_loss=meta_loss,
+#                 meta_step_size=meta_step_size,
+#                 stop_gradient=stop_gradient,
+#             )
 
-            features = end_points["Features"]
+#             features = end_points["Features"]
 
-        else:
-            # Standard ERM
-            features = self.featurizer(x)
-            logits = self.classifier(features)
+#         else:
+#             # Standard ERM
+#             features = self.featurizer(x)
+#             logits = self.classifier(features)
 
-        return logits, features
+#         return logits, features
 
-    def ce_loss(self, outputs, labels):
-        if self.label_smoothing <= 0:
-            return F.cross_entropy(outputs, labels)
+#     def ce_loss(self, outputs, labels):
+#         if self.label_smoothing <= 0:
+#             return F.cross_entropy(outputs, labels)
 
-        log_probs = F.log_softmax(outputs, dim=1)
-        nll = -log_probs.gather(1, labels.unsqueeze(1)).squeeze(1)
-        smooth = -log_probs.mean(dim=1)
-        return ((1 - self.label_smoothing) * nll + self.label_smoothing * smooth).mean()
+#         log_probs = F.log_softmax(outputs, dim=1)
+#         nll = -log_probs.gather(1, labels.unsqueeze(1)).squeeze(1)
+#         smooth = -log_probs.mean(dim=1)
+#         return ((1 - self.label_smoothing) * nll + self.label_smoothing * smooth).mean()
 
-    def prototype_contrastive_loss(self, features, labels):
+#     def prototype_contrastive_loss(self, features, labels):
 
-        features = F.normalize(features, dim=1)
+#         features = F.normalize(features, dim=1)
 
-        prototypes = F.normalize(
-            self.prototypes,
-            dim=1
-        )
+#         prototypes = F.normalize(
+#             self.prototypes,
+#             dim=1
+#         )
 
-        logits = torch.matmul(
-            features,
-            prototypes.T
-        ) / self.temperature
+#         logits = torch.matmul(
+#             features,
+#             prototypes.T
+#         ) / self.temperature
 
-        return F.cross_entropy(
-            logits,
-            labels
-        )
+#         return F.cross_entropy(
+#             logits,
+#             labels
+#         )
 
-    def memory_alignment_loss(self, batch_protos):
-        """
-        Align batch prototypes with learnable prototype memory.
-        """
+#     def memory_alignment_loss(self, batch_protos):
+#         """
+#         Align batch prototypes with learnable prototype memory.
+#         """
 
-        device = next(self.parameters()).device
+#         device = next(self.parameters()).device
 
-        if len(batch_protos) == 0:
-            return torch.tensor(
-                0.0,
-                device=device
-            )
+#         if len(batch_protos) == 0:
+#             return torch.tensor(
+#                 0.0,
+#                 device=device
+#             )
 
-        loss = 0.0
-        count = 0
+#         loss = 0.0
+#         count = 0
 
-        for c, batch_proto in batch_protos.items():
+#         for c, batch_proto in batch_protos.items():
 
-            # Ignore classes outside current batch range
-            if c >= self.num_classes:
-                continue
+#             # Ignore classes outside current batch range
+#             if c >= self.num_classes:
+#                 continue
 
-            memory_proto = F.normalize(
-                self.prototypes[c],
-                dim=0
-            )
+#             memory_proto = F.normalize(
+#                 self.prototypes[c],
+#                 dim=0
+#             )
 
-            loss += F.mse_loss(
-                batch_proto,
-                memory_proto
-            )
+#             loss += F.mse_loss(
+#                 batch_proto,
+#                 memory_proto
+#             )
 
-            count += 1
+#             count += 1
 
-        if count == 0:
-            return torch.tensor(
-                0.0,
-                device=device
-            )
+#         if count == 0:
+#             return torch.tensor(
+#                 0.0,
+#                 device=device
+#             )
 
-        return loss / count
+#         return loss / count
 
-    def update(self, minibatches, unlabeled=None):
-        loss = 0.0
-        ce_loss = 0.0
-        proto_loss = 0.0
-        mem_loss = 0.0
+#     def update(self, minibatches, unlabeled=None):
+#         loss = 0.0
+#         ce_loss = 0.0
+#         proto_loss = 0.0
+#         mem_loss = 0.0
 
-        for (xi, yi), (xj, yj) in random_pairs_of_minibatches(minibatches):
+#         for (xi, yi), (xj, yj) in random_pairs_of_minibatches(minibatches):
 
-            lam = np.random.beta(
-                self.hparams["mixup_alpha"],
-                self.hparams["mixup_alpha"]
-            )
+#             lam = np.random.beta(
+#                 self.hparams["mixup_alpha"],
+#                 self.hparams["mixup_alpha"]
+#             )
 
-            # Mix inputs
-            x = lam * xi + (1 - lam) * xj
+#             # Mix inputs
+#             x = lam * xi + (1 - lam) * xj
 
-            logits, features = self.forward_features(x)
+#             logits, features = self.forward_features(x)
 
-            # MixUp cross-entropy
-            ce = (
-                lam * self.ce_loss(logits, yi)
-                + (1 - lam) * self.ce_loss(logits, yj)
-            )
+#             # MixUp cross-entropy
+#             ce = (
+#                 lam * self.ce_loss(logits, yi)
+#                 + (1 - lam) * self.ce_loss(logits, yj)
+#             )
 
-            # MixUp prototype contrastive loss
-            proto = (
-                lam * self.prototype_contrastive_loss(features, yi)
-                + (1 - lam) * self.prototype_contrastive_loss(features, yj)
-            )
+#             # MixUp prototype contrastive loss
+#             proto = (
+#                 lam * self.prototype_contrastive_loss(features, yi)
+#                 + (1 - lam) * self.prototype_contrastive_loss(features, yj)
+#             )
 
-            # Batch prototypes for memory alignment
-            features_norm = F.normalize(features, dim=1)
-            batch_protos = {}
+#             # Batch prototypes for memory alignment
+#             features_norm = F.normalize(features, dim=1)
+#             batch_protos = {}
 
-            for labels in (yi, yj):
-                for c in torch.unique(labels):
+#             for labels in (yi, yj):
+#                 for c in torch.unique(labels):
 
-                    mask = labels == c
+#                     mask = labels == c
 
-                    if mask.sum() == 0:
-                        continue
+#                     if mask.sum() == 0:
+#                         continue
 
-                    proto_vec = F.normalize(
-                        features_norm[mask].mean(dim=0),
-                        dim=0
-                    )
+#                     proto_vec = F.normalize(
+#                         features_norm[mask].mean(dim=0),
+#                         dim=0
+#                     )
 
-                    c = int(c.item())
+#                     c = int(c.item())
 
-                    if c in batch_protos:
-                        batch_protos[c] = F.normalize(
-                            (batch_protos[c] + proto_vec) / 2,
-                            dim=0
-                        )
-                    else:
-                        batch_protos[c] = proto_vec
+#                     if c in batch_protos:
+#                         batch_protos[c] = F.normalize(
+#                             (batch_protos[c] + proto_vec) / 2,
+#                             dim=0
+#                         )
+#                     else:
+#                         batch_protos[c] = proto_vec
 
-            mem = self.memory_alignment_loss(batch_protos)
+#             mem = self.memory_alignment_loss(batch_protos)
 
-            loss += (
-                ce
-                + self.proto_weight * proto
-                + self.mem_weight * mem
-            )
+#             loss += (
+#                 ce
+#                 + self.proto_weight * proto
+#                 + self.mem_weight * mem
+#             )
 
-            ce_loss += ce
-            proto_loss += proto
-            mem_loss += mem
+#             ce_loss += ce
+#             proto_loss += proto
+#             mem_loss += mem
 
-        n = len(minibatches)
+#         n = len(minibatches)
 
-        loss /= n
-        ce_loss /= n
-        proto_loss /= n
-        mem_loss /= n
+#         loss /= n
+#         ce_loss /= n
+#         proto_loss /= n
+#         mem_loss /= n
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+#         self.optimizer.zero_grad()
+#         loss.backward()
+#         self.optimizer.step()
 
-        return {
-            "loss": loss.item(),
-            "ce_loss": ce_loss.item(),
-            "proto_loss": proto_loss.item(),
-            "mem_loss": mem_loss.item(),
-        }
+#         return {
+#             "loss": loss.item(),
+#             "ce_loss": ce_loss.item(),
+#             "proto_loss": proto_loss.item(),
+#             "mem_loss": mem_loss.item(),
+#         }
 
 #JP added
 class MLDG2(Algorithm):
@@ -3996,367 +3994,739 @@ class MLDG2(Algorithm):
             "query_idx": int(query_idx),
         }
 
-class MLDG2Proto(MLDG2):
-    """
-    MLDG2 + Learnable Prototype Memory Alignment.
+# class MLDG2Proto(MLDG2):
+#     """
+#     MLDG2 + Learnable Prototype Memory Alignment.
 
-    Extends MLDG2 by adding learnable class prototypes that act as
-    global feature anchors.
+#     Extends MLDG2 by adding learnable class prototypes that act as
+#     global feature anchors.
 
-    Unlike prototype contrastive learning, prototypes are not used
-    for classification. They only regularize the feature space through
-    memory alignment.
-    """
+#     Unlike prototype contrastive learning, prototypes are not used
+#     for classification. They only regularize the feature space through
+#     memory alignment.
+#     """
 
-    def __init__(
-        self,
-        input_shape,
-        num_classes,
-        num_domains,
-        hparams,
-    ):
+#     def __init__(
+#         self,
+#         input_shape,
+#         num_classes,
+#         num_domains,
+#         hparams,
+#     ):
 
-        super().__init__(
-            input_shape,
-            num_classes,
-            num_domains,
-            hparams,
-        )
+#         super().__init__(
+#             input_shape,
+#             num_classes,
+#             num_domains,
+#             hparams,
+#         )
 
-        self.update_count = 0
+#         self.update_count = 0
 
-        self.num_classes = num_classes
+#         self.num_classes = num_classes
 
-        feat_dim = self.network.n_outputs
+#         feat_dim = self.network.n_outputs
 
-        # Learnable prototype memory
-        self.prototypes = nn.Parameter(
-            F.normalize(
-                torch.randn(num_classes, feat_dim),
-                dim=1,
-            )
-        )
+#         # Learnable prototype memory
+#         self.prototypes = nn.Parameter(
+#             F.normalize(
+#                 torch.randn(num_classes, feat_dim),
+#                 dim=1,
+#             )
+#         )
 
-        self.prototype_counts = torch.zeros(
-            num_classes
-        )
+#         self.prototype_counts = torch.zeros(
+#             num_classes
+#         )
 
-        self.mem_weight = hparams.get(
-            "mem_weight",
-            0.1,
-        )
+#         self.mem_weight = hparams.get(
+#             "mem_weight",
+#             0.1,
+#         )
 
-        self.min_samples_per_class = hparams.get(
-            "proto_min_samples",
-            4,
-        )
-        self.proto_norm_weight = hparams.get(
-            "proto_norm_weight",
-            0.01,
-        )
+#         self.min_samples_per_class = hparams.get(
+#             "proto_min_samples",
+#             4,
+#         )
+#         self.proto_norm_weight = hparams.get(
+#             "proto_norm_weight",
+#             0.01,
+#         )
 
-        self.register_buffer(
-            "prototype_initialized",
-            torch.zeros(
-                num_classes,
-                dtype=torch.bool,
-            )
-        )
+#         self.register_buffer(
+#             "prototype_initialized",
+#             torch.zeros(
+#                 num_classes,
+#                 dtype=torch.bool,
+#             )
+#         )
 
-        self.optimizer = torch.optim.Adam(
-            [
-                {
-                    "params": self.network.parameters(),
-                    "lr": hparams["lr"],
-                },
-                {
-                    "params": self.prototypes,
-                    "lr": hparams["lr"] * 0.1,
-                },
-            ],
-            weight_decay=hparams.get(
-                "weight_decay",
-                5e-5,
-            ),
-        )
+#         self.optimizer = torch.optim.Adam(
+#             [
+#                 {
+#                     "params": self.network.parameters(),
+#                     "lr": hparams["lr"],
+#                 },
+#                 {
+#                     "params": self.prototypes,
+#                     "lr": hparams["lr"] * 0.1,
+#                 },
+#             ],
+#             weight_decay=hparams.get(
+#                 "weight_decay",
+#                 5e-5,
+#             ),
+#         )
 
-    def prototype_norm_loss(
-        self,
-    ):
-        norms = self.prototypes.norm(
-            dim=1
-        )
+#     def prototype_norm_loss(
+#         self,
+#     ):
+#         norms = self.prototypes.norm(
+#             dim=1
+#         )
 
-        return ((norms - 1.0) ** 2).mean()
+#         return ((norms - 1.0) ** 2).mean()
 
-    def memory_alignment_loss(
-        self,
-        features,
-        labels,
-    ):
-        """
-        Align learnable memory prototypes with batch class prototypes.
+#     def memory_alignment_loss(
+#         self,
+#         features,
+#         labels,
+#     ):
+#         """
+#         Align learnable memory prototypes with batch class prototypes.
 
-        The prototypes are learnable parameters.
-        Batch prototypes are treated as detached targets.
-        """
+#         The prototypes are learnable parameters.
+#         Batch prototypes are treated as detached targets.
+#         """
 
-        device = features.device
+#         device = features.device
 
-        # Normalize feature embeddings
-        features = F.normalize(
-            features,
-            dim=1,
-        )
+#         # Normalize feature embeddings
+#         features = F.normalize(
+#             features,
+#             dim=1,
+#         )
 
-        loss = torch.tensor(
-            0.0,
-            device=device,
-        )
+#         loss = torch.tensor(
+#             0.0,
+#             device=device,
+#         )
 
-        count = 0
+#         count = 0
 
-        for c in torch.unique(labels):
+#         for c in torch.unique(labels):
 
-            mask = labels == c
+#             mask = labels == c
 
-            if mask.sum() == 0:
-                continue
+#             if mask.sum() == 0:
+#                 continue
 
-            # Compute current batch prototype
-            batch_proto = features[mask].mean(
-                dim=0
-            )
+#             # Compute current batch prototype
+#             batch_proto = features[mask].mean(
+#                 dim=0
+#             )
 
-            batch_proto = F.normalize(
-                batch_proto,
-                dim=0,
-            ).detach()
+#             batch_proto = F.normalize(
+#                 batch_proto,
+#                 dim=0,
+#             ).detach()
 
-            # Learnable memory prototype
-            memory_proto = self.prototypes[c]
+#             # Learnable memory prototype
+#             memory_proto = self.prototypes[c]
 
-            # Cosine alignment
-            cosine = F.cosine_similarity(
-                memory_proto.unsqueeze(0),
-                batch_proto.unsqueeze(0),
-                dim=1,
-            )
+#             # Cosine alignment
+#             cosine = F.cosine_similarity(
+#                 memory_proto.unsqueeze(0),
+#                 batch_proto.unsqueeze(0),
+#                 dim=1,
+#             )
 
-            loss = loss + (1.0 - cosine.mean())
+#             loss = loss + (1.0 - cosine.mean())
 
-            count += 1
+#             count += 1
 
-        if count == 0:
-            # Keep graph connected
-            return self.prototypes.sum() * 0.0
+#         if count == 0:
+#             # Keep graph connected
+#             return self.prototypes.sum() * 0.0
 
-        return loss / count
+#         return loss / count
 
-    def update(
-        self,
-        minibatches,
-        unlabeled=None,
-    ):
+#     def update(
+#         self,
+#         minibatches,
+#         unlabeled=None,
+#     ):
 
-        device = next(
-            self.network.parameters()
-        ).device
-
-
-        num_domains = len(minibatches)
+#         device = next(
+#             self.network.parameters()
+#         ).device
 
 
-        # ----------------------------
-        # Select query domain
-        # ----------------------------
+#         num_domains = len(minibatches)
 
-        query_idx = np.random.choice(
-            num_domains
-        )
 
-        meta_train_loss = 0.0
+#         # ----------------------------
+#         # Select query domain
+#         # ----------------------------
+
+#         query_idx = np.random.choice(
+#             num_domains
+#         )
+
+#         meta_train_loss = 0.0
     
-        # ----------------------------
-        # Meta-train domains
-        # ----------------------------
+#         # ----------------------------
+#         # Meta-train domains
+#         # ----------------------------
 
-        for support_idx, (x_support, y_support) in enumerate(minibatches):
+#         for support_idx, (x_support, y_support) in enumerate(minibatches):
 
-            if support_idx == query_idx:
-                continue
+#             if support_idx == query_idx:
+#                 continue
 
-            x_support = x_support.to(device)
+#             x_support = x_support.to(device)
 
-            x_support = x_support.view(
-                x_support.size(0),
-                -1,
-            )
+#             x_support = x_support.view(
+#                 x_support.size(0),
+#                 -1,
+#             )
 
-            y_support = y_support.to(device)
-
-
-            logits_support, _ = self.network(
-                x_support
-            )
+#             y_support = y_support.to(device)
 
 
-            meta_train_loss += F.cross_entropy(
-                logits_support,
-                y_support,
-            )
+#             logits_support, _ = self.network(
+#                 x_support
+#             )
 
 
-        meta_train_loss /= (
-            num_domains - 1
-        )
-
-        # ----------------------------
-        # Query domain
-        # ----------------------------
-
-        x_query, y_query = minibatches[query_idx]
+#             meta_train_loss += F.cross_entropy(
+#                 logits_support,
+#                 y_support,
+#             )
 
 
-        x_query = x_query.to(device)
+#         meta_train_loss /= (
+#             num_domains - 1
+#         )
 
-        x_query = x_query.view(
-            x_query.size(0),
-            -1,
-        )
+#         # ----------------------------
+#         # Query domain
+#         # ----------------------------
 
-        y_query = y_query.to(device)
+#         x_query, y_query = minibatches[query_idx]
 
 
-        logits_query, end_points = self.network(
-            x_query,
-            meta_loss=meta_train_loss,
-            meta_step_size=self.meta_step_size,
-            stop_gradient=False,
-        )
+#         x_query = x_query.to(device)
 
-        features_query = end_points["Features"]
+#         x_query = x_query.view(
+#             x_query.size(0),
+#             -1,
+#         )
 
-        meta_val_loss = F.cross_entropy(
-            logits_query,
-            y_query,
-        )
+#         y_query = y_query.to(device)
 
-        mem_loss = self.memory_alignment_loss(
-            features_query,
-            y_query,
-        )
 
-        proto_norm_loss = self.prototype_norm_loss()
+#         logits_query, end_points = self.network(
+#             x_query,
+#             meta_loss=meta_train_loss,
+#             meta_step_size=self.meta_step_size,
+#             stop_gradient=False,
+#         )
 
-        total_loss = (
-            meta_train_loss
-            + self.meta_beta * meta_val_loss
-            + self.mem_weight * mem_loss
-            + self.proto_norm_weight * proto_norm_loss
-        )
+#         features_query = end_points["Features"]
 
-        with torch.no_grad():
+#         meta_val_loss = F.cross_entropy(
+#             logits_query,
+#             y_query,
+#         )
 
-            features_norm = F.normalize(
-                features_query,
-                dim=1,
-            )
+#         mem_loss = self.memory_alignment_loss(
+#             features_query,
+#             y_query,
+#         )
 
-            memory_norm = F.normalize(
-                self.prototypes,
-                dim=1,
-            )
+#         proto_norm_loss = self.prototype_norm_loss()
 
-            cosine_values = []
+#         total_loss = (
+#             meta_train_loss
+#             + self.meta_beta * meta_val_loss
+#             + self.mem_weight * mem_loss
+#             + self.proto_norm_weight * proto_norm_loss
+#         )
 
-            for c in torch.unique(y_query):
+#         with torch.no_grad():
 
-                mask = y_query == c
+#             features_norm = F.normalize(
+#                 features_query,
+#                 dim=1,
+#             )
 
-                batch_proto = F.normalize(
-                    features_norm[mask].mean(dim=0),
-                    dim=0,
-                )
+#             memory_norm = F.normalize(
+#                 self.prototypes,
+#                 dim=1,
+#             )
 
-                proto_cos = F.cosine_similarity(
-                    batch_proto.unsqueeze(0),
-                    memory_norm[c].unsqueeze(0),
-                )
+#             cosine_values = []
 
-                cosine_values.append(proto_cos.item())
+#             for c in torch.unique(y_query):
 
-            if len(cosine_values) > 0:
-                mean_proto_cosine = sum(cosine_values) / len(cosine_values)
-            else:
-                mean_proto_cosine = 0.0
+#                 mask = y_query == c
 
-        # Clear and do normal update
-        self.optimizer.zero_grad()
+#                 batch_proto = F.normalize(
+#                     features_norm[mask].mean(dim=0),
+#                     dim=0,
+#                 )
 
-        total_loss.backward()
+#                 proto_cos = F.cosine_similarity(
+#                     batch_proto.unsqueeze(0),
+#                     memory_norm[c].unsqueeze(0),
+#                 )
 
-        memory_proto_grad = (
-            self.prototypes.grad.norm().item()
-            if self.prototypes.grad is not None
-            else 0.0
-        )
+#                 cosine_values.append(proto_cos.item())
 
-        self.optimizer.step()
+#             if len(cosine_values) > 0:
+#                 mean_proto_cosine = sum(cosine_values) / len(cosine_values)
+#             else:
+#                 mean_proto_cosine = 0.0
 
-        if self.update_count % 300 == 0:
-            print(
-                f"step={self.update_count}, "
-                f"meta_train={meta_train_loss.item():.3f}, "
-                f"meta_val={meta_val_loss.item():.3f}, "
-                f"mem={mem_loss.item():.5f}, "
-                f"mean_proto_cos={mean_proto_cosine:.4f}"
-            )
+#         # Clear and do normal update
+#         self.optimizer.zero_grad()
+
+#         total_loss.backward()
+
+#         memory_proto_grad = (
+#             self.prototypes.grad.norm().item()
+#             if self.prototypes.grad is not None
+#             else 0.0
+#         )
+
+#         self.optimizer.step()
+
+#         if self.update_count % 300 == 0:
+#             print(
+#                 f"step={self.update_count}, "
+#                 f"meta_train={meta_train_loss.item():.3f}, "
+#                 f"meta_val={meta_val_loss.item():.3f}, "
+#                 f"mem={mem_loss.item():.5f}, "
+#                 f"mean_proto_cos={mean_proto_cosine:.4f}"
+#             )
         
-        self.update_count += 1
+#         self.update_count += 1
 
-        return {
-            "loss": total_loss.item(),
-            "meta_train_loss": meta_train_loss.item(),
-            "meta_val_loss": meta_val_loss.item(),
-            "mem_loss": mem_loss.item(),
-            "query_idx": int(query_idx),
-        }
+#         return {
+#             "loss": total_loss.item(),
+#             "meta_train_loss": meta_train_loss.item(),
+#             "meta_val_loss": meta_val_loss.item(),
+#             "mem_loss": mem_loss.item(),
+#             "query_idx": int(query_idx),
+#         }
 
 
-    def predict(self, x):
+#     def predict(self, x):
 
-        x = x.view(
-            x.size(0),
-            -1,
-        )
+#         x = x.view(
+#             x.size(0),
+#             -1,
+#         )
 
-        logits, _ = self.network(
-            x
-        )
+#         logits, _ = self.network(
+#             x
+#         )
 
-        return logits
+#         return logits
 
-class MLDG2WeightedProto(MLDG2):
-    """
-    MLDG2 + Learnable Prototype Memory Alignment.
+# class MLDG2WeightedProto(MLDG2):
+#     """
+#     MLDG2 + Learnable Prototype Memory Alignment.
 
-    Extends MLDG2 by adding learnable class prototypes that act as
-    global feature anchors.
+#     Extends MLDG2 by adding learnable class prototypes that act as
+#     global feature anchors.
 
-    Unlike prototype contrastive learning, prototypes are not used
-    for classification. They only regularize the feature space through
-    memory alignment.
-    """
+#     Unlike prototype contrastive learning, prototypes are not used
+#     for classification. They only regularize the feature space through
+#     memory alignment.
+#     """
 
-    def __init__(
-        self,
-        input_shape,
-        num_classes,
-        num_domains,
-        hparams,
-    ):
+#     def __init__(
+#         self,
+#         input_shape,
+#         num_classes,
+#         num_domains,
+#         hparams,
+#     ):
 
+#         super().__init__(
+#             input_shape,
+#             num_classes,
+#             num_domains,
+#             hparams,
+#         )
+
+#         self.update_count = 0
+
+#         self.num_classes = num_classes
+
+#         feat_dim = self.network.n_outputs
+
+#         # Learnable prototype memory
+#         self.prototypes = nn.Parameter(
+#             F.normalize(
+#                 torch.randn(num_classes, feat_dim),
+#                 dim=1,
+#             )
+#         )
+
+#         self.prototype_counts = torch.zeros(
+#             num_classes
+#         )
+
+#         self.mem_weight = hparams.get(
+#             "mem_weight",
+#             0.1,
+#         )
+
+#         self.min_samples_per_class = hparams.get(
+#             "proto_min_samples",
+#             4,
+#         )
+#         self.proto_norm_weight = hparams.get(
+#             "proto_norm_weight",
+#             0.01,
+#         )
+
+#         self.register_buffer(
+#             "prototype_initialized",
+#             torch.zeros(
+#                 num_classes,
+#                 dtype=torch.bool,
+#             )
+#         )
+
+#         self.proto_weight_warmup = hparams.get(
+#             "proto_weight_warmup",
+#             1500,
+#         )
+
+#         self.optimizer = torch.optim.Adam(
+#             [
+#                 {
+#                     "params": self.network.parameters(),
+#                     "lr": hparams["lr"],
+#                 },
+#                 {
+#                     "params": self.prototypes,
+#                     "lr": hparams["lr"] * 0.1,
+#                 },
+#             ],
+#             weight_decay=hparams.get(
+#                 "weight_decay",
+#                 5e-5,
+#             ),
+#         )
+
+#     def prototype_norm_loss(
+#         self,
+#     ):
+#         norms = self.prototypes.norm(
+#             dim=1
+#         )
+
+#         return ((norms - 1.0) ** 2).mean()
+
+#     def memory_alignment_loss(
+#         self,
+#         features,
+#         labels,
+#         logits,
+#     ):
+
+#         features = F.normalize(
+#             features,
+#             dim=1,
+#         )
+
+#         prototypes = F.normalize(
+#             self.prototypes,
+#             dim=1,
+#         )
+
+#         with torch.no_grad():
+
+#             probs = F.softmax(
+#                 logits,
+#                 dim=1,
+#             )
+
+#             confidence = probs.max(
+#                 dim=1
+#             ).values
+
+#             if self.update_count < 1000:
+#                 weights = torch.ones_like(
+#                     confidence
+#                 )
+#             else:
+#                 weights = confidence ** 2
+
+#         loss = features.new_tensor(0.0)
+
+#         count = 0
+
+
+#         for c in labels.unique():
+
+#             mask = labels == c
+
+
+#             if mask.sum() < self.min_samples_per_class:
+#                 continue
+
+
+#             class_features = features[mask]
+
+#             class_weights = weights[mask]
+
+
+#             weighted_centroid = (
+#                 class_features
+#                 *
+#                 class_weights.unsqueeze(1)
+#             ).sum(dim=0)
+
+
+#             weighted_centroid /= (
+#                 class_weights.sum()
+#                 + 1e-8
+#             )
+
+
+#             weighted_centroid = F.normalize(
+#                 weighted_centroid,
+#                 dim=0,
+#             )
+
+
+#             cosine = F.cosine_similarity(
+#                 prototypes[c],
+#                 weighted_centroid,
+#                 dim=0,
+#             )
+
+
+#             loss += (
+#                 1.0 - cosine
+#             )
+
+#             count += 1
+
+
+#         if count == 0:
+#             return self.prototypes.sum() * 0.0
+
+#         return loss / count
+
+#     def update(
+#         self,
+#         minibatches,
+#         unlabeled=None,
+#     ):
+
+#         device = next(
+#             self.network.parameters()
+#         ).device
+
+
+#         num_domains = len(minibatches)
+
+#         # ----------------------------
+#         # Select query domain
+#         # ----------------------------
+
+#         query_idx = np.random.choice(
+#             num_domains
+#         )
+
+#         meta_train_loss = 0.0
+    
+#         # ----------------------------
+#         # Meta-train domains
+#         # ----------------------------
+
+#         for support_idx, (x_support, y_support) in enumerate(minibatches):
+
+#             if support_idx == query_idx:
+#                 continue
+
+#             x_support = x_support.to(device)
+
+#             x_support = x_support.view(
+#                 x_support.size(0),
+#                 -1,
+#             )
+
+#             y_support = y_support.to(device)
+
+
+#             logits_support, _ = self.network(
+#                 x_support
+#             )
+
+
+#             meta_train_loss += F.cross_entropy(
+#                 logits_support,
+#                 y_support,
+#             )
+
+
+#         meta_train_loss /= (
+#             num_domains - 1
+#         )
+
+#         # ----------------------------
+#         # Query domain
+#         # ----------------------------
+
+#         x_query, y_query = minibatches[query_idx]
+
+
+#         x_query = x_query.to(device)
+
+#         x_query = x_query.view(
+#             x_query.size(0),
+#             -1,
+#         )
+
+#         y_query = y_query.to(device)
+
+
+#         logits_query, end_points = self.network(
+#             x_query,
+#             meta_loss=meta_train_loss,
+#             meta_step_size=self.meta_step_size,
+#             stop_gradient=False,
+#         )
+
+#         features_query = end_points["Features"]
+
+#         meta_val_loss = F.cross_entropy(
+#             logits_query,
+#             y_query,
+#         )
+
+#         # mem_loss = self.memory_alignment_loss(
+#         #     features_query,
+#         #     y_query,
+#         # )
+#         mem_loss = self.memory_alignment_loss(
+#             features_query,
+#             y_query,
+#             logits_query,
+#         )
+
+#         proto_norm_loss = self.prototype_norm_loss()
+
+#         total_loss = (
+#             meta_train_loss
+#             + self.meta_beta * meta_val_loss
+#             + self.mem_weight * mem_loss
+#             + self.proto_norm_weight * proto_norm_loss
+#         )
+
+#         # Check memory loss gradient only
+#         self.optimizer.zero_grad()
+
+#         mem_loss.backward(retain_graph=True)
+
+#         memory_network_grad = 0.0
+
+#         for p in self.network.parameters():
+#             if p.grad is not None:
+#                 memory_network_grad += p.grad.norm().item()
+
+#         memory_proto_grad = (
+#             self.prototypes.grad.norm().item()
+#             if self.prototypes.grad is not None
+#             else None
+#         )
+
+#         with torch.no_grad():
+
+#             features_norm = F.normalize(
+#                 features_query,
+#                 dim=1,
+#             )
+
+#             memory_norm = F.normalize(
+#                 self.prototypes,
+#                 dim=1,
+#             )
+
+#             cosine_values = []
+
+#             for c in torch.unique(y_query):
+
+#                 mask = y_query == c
+
+#                 batch_proto = F.normalize(
+#                     features_norm[mask].mean(dim=0),
+#                     dim=0,
+#                 )
+
+#                 proto_cos = F.cosine_similarity(
+#                     batch_proto.unsqueeze(0),
+#                     memory_norm[c].unsqueeze(0),
+#                 )
+
+#                 cosine_values.append(proto_cos.item())
+
+#             if len(cosine_values) > 0:
+#                 mean_proto_cosine = sum(cosine_values) / len(cosine_values)
+#             else:
+#                 mean_proto_cosine = 0.0
+
+#         # Clear and do normal update
+#         self.optimizer.zero_grad()
+
+#         total_loss.backward()
+
+#         self.optimizer.step()
+
+#         if self.update_count % 300 == 0:
+#             print(
+#                 f"step={self.update_count}, "
+#                 f"meta_train={meta_train_loss.item():.3f}, "
+#                 f"meta_val={meta_val_loss.item():.3f}, "
+#                 f"mem={mem_loss.item():.5f}, "
+#                 f"mean_proto_cos={mean_proto_cosine:.4f}"
+#             )
+            
+#         self.update_count += 1
+
+#         return {
+#             "loss": total_loss.item(),
+#             "meta_train_loss": meta_train_loss.item(),
+#             "meta_val_loss": meta_val_loss.item(),
+#             "mem_loss": mem_loss.item(),
+#             "query_idx": int(query_idx),
+#         }
+
+
+#     def predict(self, x):
+
+#         x = x.view(
+#             x.size(0),
+#             -1,
+#         )
+
+#         logits, _ = self.network(
+#             x
+#         )
+
+#         return logits
+
+class MLDGWeightedProto(ERM):
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
         super().__init__(
             input_shape,
             num_classes,
@@ -4364,22 +4734,15 @@ class MLDG2WeightedProto(MLDG2):
             hparams,
         )
 
-        self.update_count = 0
+        self.num_meta_test = hparams["n_meta_test"]
 
-        self.num_classes = num_classes
+        feat_dim = self.featurizer.n_outputs
 
-        feat_dim = self.network.n_outputs
-
-        # Learnable prototype memory
         self.prototypes = nn.Parameter(
             F.normalize(
                 torch.randn(num_classes, feat_dim),
                 dim=1,
             )
-        )
-
-        self.prototype_counts = torch.zeros(
-            num_classes
         )
 
         self.mem_weight = hparams.get(
@@ -4390,23 +4753,6 @@ class MLDG2WeightedProto(MLDG2):
         self.min_samples_per_class = hparams.get(
             "proto_min_samples",
             4,
-        )
-        self.proto_norm_weight = hparams.get(
-            "proto_norm_weight",
-            0.01,
-        )
-
-        self.register_buffer(
-            "prototype_initialized",
-            torch.zeros(
-                num_classes,
-                dtype=torch.bool,
-            )
-        )
-
-        self.proto_weight_warmup = hparams.get(
-            "proto_weight_warmup",
-            1500,
         )
 
         self.optimizer = torch.optim.Adam(
@@ -4420,309 +4766,193 @@ class MLDG2WeightedProto(MLDG2):
                     "lr": hparams["lr"] * 0.1,
                 },
             ],
-            weight_decay=hparams.get(
-                "weight_decay",
-                5e-5,
-            ),
+            weight_decay=hparams["weight_decay"],
         )
 
-    def prototype_norm_loss(
-        self,
-    ):
-        norms = self.prototypes.norm(
-            dim=1
-        )
+    def memory_alignment_loss(self, features, labels, logits):
 
-        return ((norms - 1.0) ** 2).mean()
-
-    def memory_alignment_loss(
-        self,
-        features,
-        labels,
-        logits,
-    ):
-
-        features = F.normalize(
-            features,
-            dim=1,
-        )
-
-        prototypes = F.normalize(
-            self.prototypes,
-            dim=1,
-        )
+        features = F.normalize(features, dim=1)
+        prototypes = F.normalize(self.prototypes, dim=1)
 
         with torch.no_grad():
-
-            probs = F.softmax(
-                logits,
-                dim=1,
+            confidence = (
+                F.softmax(logits, dim=1)
+                .max(dim=1)
+                .values
             )
 
-            confidence = probs.max(
-                dim=1
-            ).values
-
-            if self.update_count < 1000:
-                weights = torch.ones_like(
-                    confidence
-                )
-            else:
-                weights = confidence ** 2
-
-        loss = features.new_tensor(0.0)
-
+        loss = features.new_tensor(0.)
         count = 0
-
 
         for c in labels.unique():
 
             mask = labels == c
 
-
             if mask.sum() < self.min_samples_per_class:
                 continue
 
-
             class_features = features[mask]
+            class_weights = confidence[mask]
 
-            class_weights = weights[mask]
-
-
-            weighted_centroid = (
-                class_features
-                *
+            centroid = (
+                class_features *
                 class_weights.unsqueeze(1)
             ).sum(dim=0)
 
-
-            weighted_centroid /= (
+            centroid /= (
                 class_weights.sum()
                 + 1e-8
             )
 
-
-            weighted_centroid = F.normalize(
-                weighted_centroid,
+            centroid = F.normalize(
+                centroid,
                 dim=0,
             )
-
-
-            cosine = F.cosine_similarity(
-                prototypes[c],
-                weighted_centroid,
-                dim=0,
-            )
-
 
             loss += (
-                1.0 - cosine
+                1 -
+                F.cosine_similarity(
+                    prototypes[c],
+                    centroid,
+                    dim=0,
+                )
             )
 
             count += 1
 
-
         if count == 0:
-            return self.prototypes.sum() * 0.0
+            return self.prototypes.sum() * 0.
 
         return loss / count
 
-    def update(
-        self,
-        minibatches,
-        unlabeled=None,
-    ):
+    def update(self, minibatches, unlabeled=None):
+        num_mb = len(minibatches)
+        objective = 0
 
-        device = next(
-            self.network.parameters()
-        ).device
-
-
-        num_domains = len(minibatches)
-
-        # ----------------------------
-        # Select query domain
-        # ----------------------------
-
-        query_idx = np.random.choice(
-            num_domains
-        )
-
-        meta_train_loss = 0.0
-    
-        # ----------------------------
-        # Meta-train domains
-        # ----------------------------
-
-        for support_idx, (x_support, y_support) in enumerate(minibatches):
-
-            if support_idx == query_idx:
-                continue
-
-            x_support = x_support.to(device)
-
-            x_support = x_support.view(
-                x_support.size(0),
-                -1,
-            )
-
-            y_support = y_support.to(device)
-
-
-            logits_support, _ = self.network(
-                x_support
-            )
-
-
-            meta_train_loss += F.cross_entropy(
-                logits_support,
-                y_support,
-            )
-
-
-        meta_train_loss /= (
-            num_domains - 1
-        )
-
-        # ----------------------------
-        # Query domain
-        # ----------------------------
-
-        x_query, y_query = minibatches[query_idx]
-
-
-        x_query = x_query.to(device)
-
-        x_query = x_query.view(
-            x_query.size(0),
-            -1,
-        )
-
-        y_query = y_query.to(device)
-
-
-        logits_query, end_points = self.network(
-            x_query,
-            meta_loss=meta_train_loss,
-            meta_step_size=self.meta_step_size,
-            stop_gradient=False,
-        )
-
-        features_query = end_points["Features"]
-
-        meta_val_loss = F.cross_entropy(
-            logits_query,
-            y_query,
-        )
-
-        # mem_loss = self.memory_alignment_loss(
-        #     features_query,
-        #     y_query,
-        # )
-        mem_loss = self.memory_alignment_loss(
-            features_query,
-            y_query,
-            logits_query,
-        )
-
-        proto_norm_loss = self.prototype_norm_loss()
-
-        total_loss = (
-            meta_train_loss
-            + self.meta_beta * meta_val_loss
-            + self.mem_weight * mem_loss
-            + self.proto_norm_weight * proto_norm_loss
-        )
-
-        # Check memory loss gradient only
         self.optimizer.zero_grad()
-
-        mem_loss.backward(retain_graph=True)
-
-        memory_network_grad = 0.0
 
         for p in self.network.parameters():
-            if p.grad is not None:
-                memory_network_grad += p.grad.norm().item()
+            if p.grad is None:
+                p.grad = torch.zeros_like(p)
 
-        memory_proto_grad = (
-            self.prototypes.grad.norm().item()
-            if self.prototypes.grad is not None
-            else None
-        )
+        for (xi, yi), (xj, yj) in split_meta_train_test(
+            minibatches,
+            self.num_meta_test
+        ):
+            inner_net = copy.deepcopy(self.network)
 
-        with torch.no_grad():
-
-            features_norm = F.normalize(
-                features_query,
-                dim=1,
+            inner_opt = torch.optim.Adam(
+                inner_net.parameters(),
+                lr=self.hparams["lr"],
+                weight_decay=self.hparams["weight_decay"],
             )
 
-            memory_norm = F.normalize(
+            # -------------------------
+            # Inner meta-train update
+            # -------------------------
+
+            features_i = inner_net[0](xi)
+            logits_i = inner_net[1](features_i)
+
+            inner_ce = F.cross_entropy(
+                logits_i,
+                yi,
+            )
+
+            inner_mem = self.memory_alignment_loss(
+                features_i,
+                yi,
+                logits_i,
+            )
+
+            inner_obj = (
+                inner_ce
+                +
+                self.mem_weight * inner_mem
+            )
+
+            inner_opt.zero_grad()
+            inner_obj.backward()
+            inner_opt.step()
+
+            for p_tgt, p_src in zip(
+                self.network.parameters(),
+                inner_net.parameters(),
+            ):
+                if p_src.grad is not None:
+                    p_tgt.grad.data.add_(
+                        p_src.grad.data / num_mb
+                    )
+
+            objective += inner_obj.item()
+
+            # -------------------------
+            # Meta-test objective
+            # -------------------------
+
+            features_j = inner_net[0](xj)
+            logits_j = inner_net[1](features_j)
+
+            loss_inner_j = (
+                F.cross_entropy(logits_j, yj)
+                +
+                self.mem_weight *
+                self.memory_alignment_loss(
+                    features_j,
+                    yj,
+                    logits_j,
+                )
+            )
+
+            grad_inner_j = autograd.grad(
+                loss_inner_j,
+                inner_net.parameters(),
+                allow_unused=True,
+                retain_graph=True,
+            )
+
+            proto_grad = autograd.grad(
+                loss_inner_j,
                 self.prototypes,
-                dim=1,
+                allow_unused=True,
+            )[0]
+
+            objective += (
+                self.hparams["mldg_beta"] *
+                loss_inner_j.item()
             )
 
-            cosine_values = []
+            for p, g_j in zip(
+                self.network.parameters(),
+                grad_inner_j,
+            ):
+                if g_j is not None:
+                    p.grad.data.add_(
+                        self.hparams["mldg_beta"] *
+                        g_j.data /
+                        num_mb
+                    )
 
-            for c in torch.unique(y_query):
+            if proto_grad is not None:
 
-                mask = y_query == c
+                if self.prototypes.grad is None:
+                    self.prototypes.grad = torch.zeros_like(
+                        self.prototypes
+                    )
 
-                batch_proto = F.normalize(
-                    features_norm[mask].mean(dim=0),
-                    dim=0,
+                self.prototypes.grad.data.add_(
+                    self.hparams["mldg_beta"] *
+                    proto_grad.data /
+                    num_mb
                 )
 
-                proto_cos = F.cosine_similarity(
-                    batch_proto.unsqueeze(0),
-                    memory_norm[c].unsqueeze(0),
-                )
-
-                cosine_values.append(proto_cos.item())
-
-            if len(cosine_values) > 0:
-                mean_proto_cosine = sum(cosine_values) / len(cosine_values)
-            else:
-                mean_proto_cosine = 0.0
-
-        # Clear and do normal update
-        self.optimizer.zero_grad()
-
-        total_loss.backward()
+        objective /= len(minibatches)
 
         self.optimizer.step()
 
-        if self.update_count % 300 == 0:
-            print(
-                f"step={self.update_count}, "
-                f"meta_train={meta_train_loss.item():.3f}, "
-                f"meta_val={meta_val_loss.item():.3f}, "
-                f"mem={mem_loss.item():.5f}, "
-                f"mean_proto_cos={mean_proto_cosine:.4f}"
-            )
-            
-        self.update_count += 1
-
         return {
-            "loss": total_loss.item(),
-            "meta_train_loss": meta_train_loss.item(),
-            "meta_val_loss": meta_val_loss.item(),
-            "mem_loss": mem_loss.item(),
-            "query_idx": int(query_idx),
+            "loss": objective,
         }
 
-
     def predict(self, x):
-
-        x = x.view(
-            x.size(0),
-            -1,
-        )
-
-        logits, _ = self.network(
-            x
-        )
-
-        return logits
-
+        return self.network(x)
