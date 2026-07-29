@@ -130,79 +130,36 @@ class MetaMLP(nn.Module):
 
         return logits, end_points
 
-class ProtoinitMetaMLP(nn.Module):
-    """
-    Two-layer MLP matching Li et al.'s implementation.
-
-    Extended with prototype-conditioned initialization.
-    """
-
-    def __init__(self, n_inputs, n_outputs, hparams):
+class CLIPFeaturizer(nn.Module):
+    def __init__(self, hparams):
         super().__init__()
 
-        hidden_dim = hparams["mlp_width"]
-
-        self.fc1 = nn.Linear(n_inputs, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, n_outputs)
-
-        self.n_outputs = hidden_dim
-
-    def forward(
-        self,
-        x,
-        meta_loss=None,
-        meta_step_size=None,
-        stop_gradient=False,
-        init_weights=None,
-    ):
-
-        if init_weights is None:
-
-            fc1_weight = self.fc1.weight
-            fc1_bias = self.fc1.bias
-
-            fc2_weight = self.fc2.weight
-            fc2_bias = self.fc2.bias
-
-        else:
-
-            fc1_weight = init_weights["fc1_weight"]
-            fc1_bias = init_weights["fc1_bias"]
-
-            fc2_weight = init_weights["fc2_weight"]
-            fc2_bias = init_weights["fc2_bias"]
-
-
-        x = linear(
-            inputs=x,
-            weight=fc1_weight,
-            bias=fc1_bias,
-            meta_loss=meta_loss,
-            meta_step_size=meta_step_size,
-            stop_gradient=stop_gradient,
+        model_name = hparams.get(
+            "clip_model",
+            "ViT-B-32"
         )
 
-        x = F.relu(x)
-
-        features = x
-
-
-        logits = linear(
-            inputs=x,
-            weight=fc2_weight,
-            bias=fc2_bias,
-            meta_loss=meta_loss,
-            meta_step_size=meta_step_size,
-            stop_gradient=stop_gradient,
+        pretrained = hparams.get(
+            "clip_pretrained",
+            "laion2b_s34b_b79k"
         )
 
+        self.clip_model, _, _ = open_clip.create_model_and_transforms(
+            model_name,
+            pretrained=pretrained,
+        )
 
-        end_points = {
-            "Features": features,
-            "Predictions": F.softmax(logits, dim=-1)
-        }
+        self.n_outputs = self.clip_model.visual.output_dim
 
-        return logits, end_points
+    def forward(self, x):
+        features = self.clip_model.encode_image(x)
+
+        features = F.normalize(
+            features,
+            dim=-1
+        )
+
+        return features
 
 class DinoV2(torch.nn.Module):
     """ """
@@ -369,9 +326,9 @@ class ContextNet(nn.Module):
 def Featurizer(input_shape, hparams):
     """Auto-select an appropriate featurizer for the given input shape."""
     if len(input_shape) == 1:
-        # if hparams.get('identity_features', False): # JP added
         return IdentityFeaturizer(input_shape) # JP added
-    # return MLP(input_shape[0], hparams["mlp_width"], hparams)
+    if hparams.get("backbone", None) == "CLIP":
+        return CLIPFeaturizer(hparams) # JP added
     elif input_shape[1:3] == (28, 28):
         return MNIST_CNN(input_shape)
     elif input_shape[1:3] == (32, 32):

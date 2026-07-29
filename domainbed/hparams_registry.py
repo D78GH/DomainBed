@@ -47,6 +47,10 @@ def _hparams(algorithm, dataset, random_seed):
     _hparam('mlp_depth', 3, lambda r: 3)
     _hparam('mlp_dropout', 0.0, lambda r: 0.0)
     _hparam('subset_fraction', 1.0, lambda r: 1.0)
+    _hparam('clip', False, lambda r: False)
+    _hparam('clip_model', 'ViT-B-32', lambda r: 'ViT-B-32')
+    _hparam('clip_pretrained', 'laion2b_s34b_b79k',
+            lambda r: 'laion2b_s34b_b79k')
 
     # Algorithm-specific hparam definitions. Each block of code below
     # corresponds to exactly one algorithm.
