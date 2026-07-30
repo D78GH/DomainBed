@@ -277,6 +277,14 @@ if __name__ == "__main__":
                 'trial_seed': args.trial_seed,
             })
 
+            for k, v in results.items():
+                try:
+                    json.dumps(v)
+                except TypeError:
+                    print(f"Non-serializable field: {k}")
+                    print(f"Type: {type(v)}")
+                    print(f"Value: {v}")
+
             epochs_path = os.path.join(args.output_dir, 'results.jsonl')
             with open(epochs_path, 'a') as f:
                 f.write(json.dumps(results, sort_keys=True) + "\n")
