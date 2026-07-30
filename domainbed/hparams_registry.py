@@ -109,7 +109,7 @@ def _hparams(algorithm, dataset, random_seed):
     elif algorithm == "MMD" or algorithm == "CORAL" or algorithm == "CausIRL_CORAL" or algorithm == "CausIRL_MMD":
         _hparam('mmd_gamma', 1., lambda r: 10**r.uniform(-1, 1))
 
-    elif algorithm == "MLDG":
+    elif algorithm in ["MLDG", "MLDGWeightedProto"]: # JP added
         _hparam('mldg_beta', 1., lambda r: 10**r.uniform(-1, 1))
         _hparam('n_meta_test', 2, lambda r:  r.choice([1, 2]))
 
