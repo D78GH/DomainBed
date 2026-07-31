@@ -8,6 +8,7 @@ from torch.optim.swa_utils import AveragedModel
 
 import copy
 import numpy as np
+import higher # JP added
 from collections import OrderedDict
 try:
     from backpack import backpack, extend
@@ -4341,20 +4342,34 @@ class MLDGWeightedProto(ERM):
 
         return self.network(x)
 
+import copy
+import higher
+import numpy as np
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 
 class MLDGLPMCL(LPMCL):
     """
-    MLDG + LPMCL.
+    MLDG + LPMCL
 
-    Keeps the ERM backbone from LPMCL:
+    ERM backbone:
         Featurizer + Classifier
 
-    Adds MLDG-style meta-learning:
-        support domains -> inner update
-        query domain   -> meta objective
+    Inner loop:
+        Support domains
+        Cross-entropy only
 
-    Prototype contrastive loss and memory alignment
-    are included inside the meta-learning objective.
+    Outer loop:
+        Query domain
+        Cross-entropy
+        + Prototype contrastive loss
+        + Memory alignment loss
+
+    Meta-gradients are computed through the differentiable
+    inner optimisation using higher.
     """
 
     def __init__(
@@ -4384,6 +4399,26 @@ class MLDGLPMCL(LPMCL):
 
         self.update_count = 0
 
+    def compute_ce_loss(
+        self,
+        network,
+        x,
+        y,
+    ):
+
+        features = network[0](x)
+
+        logits = network[1](
+            features
+        )
+
+        ce = self.ce_loss(
+            logits,
+            y,
+        )
+
+        return ce
+
     def build_batch_prototypes(
         self,
         features,
@@ -4405,7 +4440,7 @@ class MLDGLPMCL(LPMCL):
                 continue
 
             proto = features[mask].mean(
-                dim=0
+                dim=0,
             )
 
             batch_protos[int(c.item())] = F.normalize(
@@ -4425,12 +4460,14 @@ class MLDGLPMCL(LPMCL):
         ).device
 
         if len(batch_protos) == 0:
+
             return torch.tensor(
                 0.0,
                 device=device,
             )
 
         loss = 0.0
+
         count = 0
 
         for c, batch_proto in batch_protos.items():
@@ -4456,6 +4493,7 @@ class MLDGLPMCL(LPMCL):
             count += 1
 
         if count == 0:
+
             return torch.tensor(
                 0.0,
                 device=device,
@@ -4495,7 +4533,7 @@ class MLDGLPMCL(LPMCL):
             batch_protos,
         )
 
-        loss = (
+        total_loss = (
             ce
             +
             self.proto_weight * proto_loss
@@ -4504,7 +4542,7 @@ class MLDGLPMCL(LPMCL):
         )
 
         return {
-            "loss": loss,
+            "loss": total_loss,
             "ce": ce,
             "proto": proto_loss,
             "mem": mem_loss,
@@ -4527,102 +4565,133 @@ class MLDGLPMCL(LPMCL):
             num_domains
         )
 
-        inner_net = copy.deepcopy(
-            self.network
-        )
-
-        inner_net.train()
-
         inner_optimizer = torch.optim.Adam(
-            inner_net.parameters(),
+            self.network.parameters(),
             lr=self.hparams["lr"],
             weight_decay=self.hparams["weight_decay"],
         )
 
-        meta_train_loss = 0.0
+        with higher.innerloop_ctx(
+            self.network,
+            inner_optimizer,
+            copy_initial_weights=False,
+        ) as (inner_net, inner_opt):
 
-        meta_train_ce = 0.0
-        meta_train_proto = 0.0
-        meta_train_mem = 0.0
+            # ==========================
+            # INNER LOOP
+            # Support domains
+            # CE only
+            # ==========================
 
-        support_count = 0
+            meta_train_loss = 0.0
 
-        for domain_idx, (x, y) in enumerate(minibatches):
+            support_count = 0
 
-            if domain_idx == query_idx:
-                continue
+            for domain_idx, (x, y) in enumerate(minibatches):
 
-            x = x.to(device)
+                if domain_idx == query_idx:
+                    continue
 
-            y = y.to(device)
+                x = x.to(device)
+                y = y.to(device)
 
-            losses = self.compute_lpmcl_loss(
-                inner_net,
-                x,
-                y,
+                ce_loss = self.compute_ce_loss(
+                    inner_net,
+                    x,
+                    y,
+                )
+
+                meta_train_loss += ce_loss
+
+                support_count += 1
+
+            meta_train_loss /= support_count
+
+            inner_opt.step(
+                meta_train_loss
             )
 
-            meta_train_loss += losses["loss"]
+            # ==========================
+            # OUTER LOOP
+            # Query domain
+            # LPMCL objective
+            # ==========================
 
-            meta_train_ce += losses["ce"].item()
-            meta_train_proto += losses["proto"].item()
-            meta_train_mem += losses["mem"].item()
+            x_query, y_query = minibatches[
+                query_idx
+            ]
 
-            support_count += 1
+            x_query = x_query.to(device)
+            y_query = y_query.to(device)
 
-        meta_train_loss /= support_count
+            #temp
+            with torch.no_grad():
+                ce_before = self.compute_ce_loss(
+                    self.network,
+                    x_query,
+                    y_query,
+                ).item()
 
-        inner_optimizer.zero_grad()
+            query_losses = self.compute_lpmcl_loss(
+                inner_net,
+                x_query,
+                y_query,
+            )
 
-        meta_train_loss.backward()
+            #temp
+            ce_after = query_losses["ce"].item()
+            adaptation_gain = (
+                ce_before
+                - ce_after
+            )
 
-        inner_optimizer.step()
+            meta_val_loss = query_losses["loss"]
 
+            total_loss = (
+                self.meta_beta
+                * meta_val_loss
+            )
 
-        x_query, y_query = minibatches[query_idx]
+            self.optimizer.zero_grad()
 
-        x_query = x_query.to(device)
+            total_loss.backward()
 
-        y_query = y_query.to(device)
+            #temp
+            proto_grad_norm = 0.0
+            if self.prototypes.grad is not None:
 
+                proto_grad_norm = (
+                    self.prototypes.grad.norm().item()
+                )
 
-        query_losses = self.compute_lpmcl_loss(
-            inner_net,
-            x_query,
-            y_query,
-        )
+            feature_grad_norm = 0.0
+            for p in self.featurizer.parameters():
 
-        meta_val_loss = query_losses["loss"]
+                if p.grad is not None:
 
-        total_loss = (
-            meta_train_loss
-            +
-            self.meta_beta * meta_val_loss
-        )
+                    feature_grad_norm += (
+                        p.grad.norm().item()
+                    )
 
+            self.optimizer.step()
 
-        self.optimizer.zero_grad()
+            self.update_count += 1
 
-        total_loss.backward()
+            results = {
+                "loss": total_loss.item(),
+                "meta_train_ce": meta_train_loss.item(),
+                "meta_val_loss": meta_val_loss.item(),
+                "query_ce": query_losses["ce"].item(),
+                "query_proto": query_losses["proto"].item(),
+                "query_mem": query_losses["mem"].item(),
+                "query_idx": int(query_idx),
+                "adaptation_gain": adaptation_gain,
+                "proto_grad_norm": proto_grad_norm,
+                "feature_grad_norm": feature_grad_norm,
+            }
 
-        self.optimizer.step()
+        return results
 
-
-        self.update_count += 1
-
-
-        return {
-            "loss": total_loss.item(),
-            "meta_train_loss": meta_train_loss.item(),
-            "meta_val_loss": meta_val_loss.item(),
-            "meta_train_ce": meta_train_ce / max(support_count, 1),
-            "meta_train_proto": meta_train_proto / max(support_count, 1),
-            "meta_train_mem": meta_train_mem / max(support_count, 1),
-            "query_ce": query_losses["ce"].item(),
-            "query_proto": query_losses["proto"].item(),
-            "query_mem": query_losses["mem"].item(),
-            "query_idx": int(query_idx),
-        }
     def predict(
         self,
         x,
