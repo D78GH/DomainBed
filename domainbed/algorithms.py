@@ -4342,15 +4342,6 @@ class MLDGWeightedProto(ERM):
 
         return self.network(x)
 
-import copy
-import higher
-import numpy as np
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
 class MLDGLPMCL(LPMCL):
     """
     MLDG + LPMCL
