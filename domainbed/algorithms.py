@@ -4462,13 +4462,104 @@ class LPMCL(ERM):
 
 #         return self.network(x)
 
+# class MLDG2(ERM):
+#     def __init__(self,input_shape,num_classes,num_domains,hparams):
+#         super().__init__(input_shape,num_classes,num_domains,hparams)
+
+#         self.meta_step_size=hparams.get("meta_step_size",0.5)
+#         self.support_weight=hparams.get("support_weight",0.01)
+#         self.query_weight=hparams.get("query_weight",0.03)
+#         self.erm_classifier=self.classifier
+#         self.meta_classifier=networks.Classifier(self.featurizer.n_outputs,num_classes,hparams['nonlinear_classifier'])
+#         self.network=nn.Sequential(self.featurizer,self.erm_classifier)
+#         self.optimizer=torch.optim.Adam(
+#             list(self.featurizer.parameters())+
+#             list(self.erm_classifier.parameters())+
+#             list(self.meta_classifier.parameters()),
+#             lr=hparams["lr"],
+#             weight_decay=hparams["weight_decay"]
+#         )
+#     def predict(self,x):
+#         return self.network(x)
+
+#     def update(self,minibatches,unlabeled=None):
+#         print("ERM classifier params:",sum(p.numel() for p in self.erm_classifier.parameters()))
+#         print("Meta classifier params:",sum(p.numel() for p in self.meta_classifier.parameters()))
+#         print("Featurizer params:",sum(p.numel() for p in self.featurizer.parameters()))
+                
+#         device=next(self.parameters()).device
+#         num_domains=len(minibatches)
+
+#         all_x=torch.cat([x for x,_ in minibatches]).to(device)
+#         all_y=torch.cat([y for _,y in minibatches]).to(device)
+#         features=self.featurizer(all_x)
+#         erm_loss=F.cross_entropy(self.erm_classifier(features),all_y)
+
+#         query_idx=np.random.choice(num_domains)
+#         support_loss=0.0
+#         support_count=0
+
+#         for i,(x,y) in enumerate(minibatches):
+#             if i==query_idx:
+#                 continue
+#             x=x.to(device)
+#             y=y.to(device)
+#             f=self.featurizer(x)
+#             support_loss+=F.cross_entropy(self.meta_classifier(f),y)
+#             support_count+=1
+
+#         support_loss=support_loss/max(support_count,1)
+
+#         meta_params=list(self.meta_classifier.parameters())
+#         grads=torch.autograd.grad(support_loss,meta_params,create_graph=False)
+#         fast_weights=[p-self.meta_step_size*g.detach() for p,g in zip(meta_params,grads)]
+
+#         xq,yq=minibatches[query_idx]
+#         xq=xq.to(device)
+#         yq=yq.to(device)
+#         fq=self.featurizer(xq)
+
+#         if len(fast_weights)==4:
+#             w1,b1,w2,b2=fast_weights
+#             query_logits=F.linear(F.relu(F.linear(fq,w1,b1)),w2,b2)
+#         else:
+#             w,b=fast_weights
+#             query_logits=F.linear(fq,w,b)
+
+#         query_loss=F.cross_entropy(query_logits,yq)
+
+#         total_loss=erm_loss+self.support_weight*support_loss.detach()+self.query_weight*query_loss
+        
+#         self.optimizer.zero_grad()
+#         total_loss.backward()
+#         grad_norm=torch.nn.utils.clip_grad_norm_(self.parameters(),1e9)
+#         self.optimizer.step()
+
+#         print({
+#         "erm":erm_loss.item(),
+#         "support":support_loss.item(),
+#         "query":query_loss.item(),
+#         "weighted_support":(self.support_weight*support_loss).item(),
+#         "weighted_query":(self.query_weight*query_loss).item()
+#         })
+
+#         return {
+#             "loss":total_loss.item(),
+#             "erm_loss":erm_loss.item(),
+#             "support_loss":support_loss.item(),
+#             "query_loss":query_loss.item(),
+#             "weighted_support":(self.support_weight*support_loss).item(),
+#             "weighted_query":(self.query_weight*query_loss).item(),
+#             "query_idx":int(query_idx),
+#             "grad_norm":grad_norm.item()
+#         }
+
 class MLDG2(ERM):
     def __init__(self,input_shape,num_classes,num_domains,hparams):
         super().__init__(input_shape,num_classes,num_domains,hparams)
-
         self.meta_step_size=hparams.get("meta_step_size",0.5)
-        self.support_weight=hparams.get("support_weight",0.01)
-        self.query_weight=hparams.get("query_weight",0.03)
+        self.support_weight=hparams.get("support_weight",0.005)
+        self.query_weight=hparams.get("query_weight",0.01)
         self.erm_classifier=self.classifier
         self.meta_classifier=networks.Classifier(self.featurizer.n_outputs,num_classes,hparams['nonlinear_classifier'])
         self.network=nn.Sequential(self.featurizer,self.erm_classifier)
@@ -4479,14 +4570,12 @@ class MLDG2(ERM):
             lr=hparams["lr"],
             weight_decay=hparams["weight_decay"]
         )
+
     def predict(self,x):
-        return self.network(x)
+        f=self.featurizer(x)
+        return self.meta_classifier(f)
 
     def update(self,minibatches,unlabeled=None):
-        print("ERM classifier params:",sum(p.numel() for p in self.erm_classifier.parameters()))
-        print("Meta classifier params:",sum(p.numel() for p in self.meta_classifier.parameters()))
-        print("Featurizer params:",sum(p.numel() for p in self.featurizer.parameters()))
-                
         device=next(self.parameters()).device
         num_domains=len(minibatches)
 
@@ -4529,19 +4618,11 @@ class MLDG2(ERM):
         query_loss=F.cross_entropy(query_logits,yq)
 
         total_loss=erm_loss+self.support_weight*support_loss.detach()+self.query_weight*query_loss
-        
+
         self.optimizer.zero_grad()
         total_loss.backward()
         grad_norm=torch.nn.utils.clip_grad_norm_(self.parameters(),1e9)
         self.optimizer.step()
-
-        print({
-        "erm":erm_loss.item(),
-        "support":support_loss.item(),
-        "query":query_loss.item(),
-        "weighted_support":(self.support_weight*support_loss).item(),
-        "weighted_query":(self.query_weight*query_loss).item()
-        })
 
         return {
             "loss":total_loss.item(),
