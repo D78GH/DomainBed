@@ -72,7 +72,7 @@ def slurm_files(commands):
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
-#SBATCH --exclude=damnii11,damnii08,damnii12,damnii10,landonia25s
+#SBATCH --exclude=damnii11,damnii08,damnii12,damnii10,landonia25
 
 module purge
 module load cuda
