@@ -8,7 +8,7 @@ from torch.optim.swa_utils import AveragedModel
 
 import copy
 import numpy as np
-import higher # JP added
+# import higher # JP added
 from collections import OrderedDict
 try:
     from backpack import backpack, extend
@@ -50,12 +50,10 @@ ALGORITHMS = [
     'MLDG2', #JP added
     'DPCL', #JP added
     'SupCon', #JP added
-    'CPCL', #JP added
-    'PrototypeMemory', #JP added
     'PMCL', #JP added - Batch Prototype Memory Contrastive Learning
     'LPMCL', #JP added - Learnable Prototype Memory Contrastive Learning
-    'MLDGWeightedProto', #JP added
-    'MLDGLPMCL' #JP added
+    # 'MLDGWeightedProto', #JP added
+    # 'MLDGLPMCL' #JP added
     'CORAL',
     'MMD',
     'DANN',
@@ -3041,232 +3039,6 @@ class SupCon(Algorithm):
             "supcon": supcon_loss.item(),
         }
 
-class CPCL(Algorithm):
-    """
-    MLDG15_4 - Cross Entropy + Normalized Class-Prototype Contrastive Loss
-    """
-
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__(input_shape, num_classes, num_domains, hparams)
-
-        self.temperature = hparams.get("temperature", 0.07)
-        self.alpha = hparams.get("alpha", 1.0)
-        self.gamma = hparams.get("gamma", 1.0)
-        self.min_samples_per_class = hparams.get("min_samples_per_class", 2)
-        self.min_classes = hparams.get("min_classes", 2)
-
-        self.featurizer = networks.Featurizer(input_shape, hparams)
-
-        self.classifier = nn.Linear(
-            self.featurizer.n_outputs,
-            num_classes
-        )
-
-        self.network = nn.Sequential(
-            self.featurizer,
-            self.classifier
-        )
-
-        self.optimizer = torch.optim.Adam(
-            self.network.parameters(),
-            lr=hparams["lr"],
-            weight_decay=hparams["weight_decay"]
-        )
-
-    def predict(self, x):
-        return self.network(x)
-
-    def forward_features(self, x):
-        features = self.featurizer(x)
-        logits = self.classifier(features)
-        return logits, features
-
-    def prototype_loss(self, features, labels):
-        """
-        Normalized class-prototype contrastive loss.
-        """
-
-        device = features.device
-        batch_size = features.size(0)
-
-        if batch_size <= 1:
-            return torch.tensor(0.0, device=device)
-
-        features = F.normalize(features, p=2, dim=1)
-
-        unique_labels, inverse_indices = torch.unique(
-            labels,
-            sorted=True,
-            return_inverse=True
-        )
-
-        if unique_labels.numel() < self.min_classes:
-            return torch.tensor(0.0, device=device)
-
-        if self.min_samples_per_class > 1:
-
-            class_counts = torch.bincount(inverse_indices)
-
-            if (class_counts < self.min_samples_per_class).any():
-                return torch.tensor(0.0, device=device)
-
-        prototypes = []
-
-        for cls in unique_labels:
-
-            mask = labels == cls
-
-            prototypes.append(
-                features[mask].mean(dim=0)
-            )
-
-        prototypes = torch.stack(prototypes, dim=0)
-        prototypes = F.normalize(prototypes, p=2, dim=1)
-
-        logits = (
-            torch.matmul(features, prototypes.T)
-            / self.temperature
-        )
-
-        return F.cross_entropy(
-            logits,
-            inverse_indices
-        )
-
-    def update(self, minibatches, unlabeled=None):
-
-        device = next(self.network.parameters()).device
-
-        x = torch.cat([
-            x.to(device)
-            for x, y in minibatches
-        ])
-
-        y = torch.cat([
-            y.to(device)
-            for x, y in minibatches
-        ])
-
-        logits, features = self.forward_features(x)
-
-        ce_loss = F.cross_entropy(
-            logits,
-            y
-        )
-
-        proto_loss = self.prototype_loss(
-            features,
-            y
-        )
-
-        loss = (
-            self.gamma * ce_loss
-            + self.alpha * proto_loss
-        )
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        return {
-            "loss": loss.item(),
-            "ce": ce_loss.item(),
-            "proto": proto_loss.item(),
-        }
-
-class PrototypeMemory(ERM):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__(input_shape, num_classes, num_domains, hparams)
-
-        # Stores weighted prototype sums
-        self.prototype_memory = {}
-        self.proto_weight = hparams.get("proto_weight", 0.5)
-
-    # Prototype Loss (Reading from Memory)
-    def prototype_loss(self, features, labels):
-
-        loss = features.new_tensor(0.)
-        count = 0
-
-        for c in torch.unique(labels):
-
-            mask = labels == c
-
-            # Current batch prototype
-            proto = features[mask].mean(dim=0)
-
-            # Normalize current prototype
-            proto = F.normalize(proto, dim=0)
-
-            c_item = int(c.item())
-
-            if c_item in self.prototype_memory:
-
-                # Retrieve weighted prototype mean from memory
-                mem = self.prototype_memory[c_item].to(features.device)
-
-                # Prototype consistency loss
-                positive = 1 - F.cosine_similarity(
-                    proto,
-                    mem,
-                    dim=0
-                )
-
-                loss += positive
-                count += 1
-
-        # First iteration: no memory exists
-        return loss / count if count > 0 else features.new_tensor(0.)
-
-    # Prototype Memory Update (Writing to Memory)
-    @torch.no_grad()
-    def update_memory(self, features, labels):
-
-        for c in torch.unique(labels):
-            mask = labels == c
-
-            # Current batch prototype (NOT normalized)
-            proto = features[mask].mean(dim=0)
-
-            c_item = int(c.item())
-            batch_count = mask.sum().item()
-
-            if c_item not in self.prototype_memory:
-
-                # Store weighted sum
-                self.prototype_memory[c_item] = (proto.detach() * batch_count)
-                self.prototype_counts[c_item] = batch_count
-            else:
-                # Running weighted average
-                self.prototype_memory[c_item] += (proto.detach() * batch_count)
-
-                self.prototype_counts[c_item] += batch_count
-
-    def update(self, minibatches, unlabeled=None):
-
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-
-        features = self.featurizer(all_x)
-        logits = self.classifier(features)
-
-        ce_loss = F.cross_entropy(logits, all_y)
-        proto_loss = self.prototype_loss(features,all_y)
-        loss = (ce_loss + self.proto_weight * proto_loss)
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        # Update memory using detached features
-        self.update_memory(features.detach(),all_y)
-
-        return {
-            "loss": loss.item(),
-            "ce_loss": ce_loss.item(),
-            "proto_loss": proto_loss.item()
-        }
-
 class PMCL(ERM):
     """
     Prototype Memory Contrastive Learning using weighted mean of prototype based on sample count.
@@ -3893,799 +3665,892 @@ class LPMCL(ERM):
 #             "mem_loss": mem_loss.item(),
 #         }
 
-#JP added
-class MLDG2(Algorithm):
-    """
-    MLDG implementation based on Li et al Learning to Generalize: Meta-Learning for Domain Generalization paper
-    With adapted Adam instead of SGD optimiser
-    Unlike DomainBed's implementation, Li et al parameters are adapted inside forward pass i.e.,
-    MetaMLP.forward() via the linear() operator.
-    """
+# #JP added
+# class MLDG2(Algorithm):
+#     """
+#     MLDG implementation based on Li et al Learning to Generalize: Meta-Learning for Domain Generalization paper
+#     With adapted Adam instead of SGD optimiser
+#     Unlike DomainBed's implementation, Li et al parameters are adapted inside forward pass i.e.,
+#     MetaMLP.forward() via the linear() operator.
+#     """
 
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super().__init__(input_shape, num_classes, num_domains, hparams)
+#     def __init__(self, input_shape, num_classes, num_domains, hparams):
+#         super().__init__(input_shape, num_classes, num_domains, hparams)
 
-        self.update_count = 0
-        self.num_classes = num_classes
+#         self.update_count = 0
+#         self.num_classes = num_classes
 
-        self.meta_step_size = hparams.get("meta_step_size", 0.5)
-        self.meta_beta = hparams.get("meta_val_beta", 1.0)
+#         self.meta_step_size = hparams.get("meta_step_size", 0.5)
+#         self.meta_beta = hparams.get("meta_val_beta", 1.0)
 
-        # flatten input
-        n_inputs = int(np.prod(input_shape))
+#         # flatten input
+#         n_inputs = int(np.prod(input_shape))
 
-        self.network = networks.MetaMLP(
-            n_inputs=n_inputs,
-            n_outputs=num_classes,
-            hparams=hparams,
-        )
+#         self.network = networks.MetaMLP(
+#             n_inputs=n_inputs,
+#             n_outputs=num_classes,
+#             hparams=hparams,
+#         )
 
-        self.optimizer = torch.optim.Adam(
-            self.network.parameters(),
-            lr=hparams["lr"],
-            weight_decay=hparams.get("weight_decay", 0.00005),
-        )
+#         self.optimizer = torch.optim.Adam(
+#             self.network.parameters(),
+#             lr=hparams["lr"],
+#             weight_decay=hparams.get("weight_decay", 0.00005),
+#         )
 
-    def predict(self, x):
-        # flattens the input to batch_size, channels * height * width so vectors can be passed into network
-        x = x.view(x.size(0), -1)
+#     def predict(self, x):
+#         # flattens the input to batch_size, channels * height * width so vectors can be passed into network
+#         x = x.view(x.size(0), -1)
 
-        # runs a forward pass
-        logits, _ = self.network(x)
-        return logits
+#         # runs a forward pass
+#         logits, _ = self.network(x)
+#         return logits
 
-    def update(self, minibatches, unlabeled=None):
+#     def update(self, minibatches, unlabeled=None):
 
-        device = next(self.network.parameters()).device
+#         device = next(self.network.parameters()).device
 
-        num_domains = len(minibatches)
+#         num_domains = len(minibatches)
 
-        # randomly choose the query (meta-test) domain
-        query_idx = np.random.choice(num_domains)
+#         # randomly choose the query (meta-test) domain
+#         query_idx = np.random.choice(num_domains)
 
-        # meta-train (support domains)
-        meta_train_loss = 0.0
+#         # meta-train (support domains)
+#         meta_train_loss = 0.0
 
-        for support_idx, (x_support, y_support) in enumerate(minibatches):
+#         for support_idx, (x_support, y_support) in enumerate(minibatches):
 
-            # remaining domains not the query becomes the support
-            if support_idx == query_idx:
-                continue
+#             # remaining domains not the query becomes the support
+#             if support_idx == query_idx:
+#                 continue
 
-            x_support = x_support.to(device).view(x_support.size(0), -1)
-            y_support = y_support.to(device)
+#             x_support = x_support.to(device).view(x_support.size(0), -1)
+#             y_support = y_support.to(device)
             
-            logits_support, _ = self.network(x_support)
+#             logits_support, _ = self.network(x_support)
 
-            meta_train_loss += F.cross_entropy(logits_support, y_support)
+#             meta_train_loss += F.cross_entropy(logits_support, y_support)
             
-        # meta-test (query domain)
-        x_query, y_query = minibatches[query_idx]
+#         # meta-test (query domain)
+#         x_query, y_query = minibatches[query_idx]
 
-        x_query = x_query.to(device).view(x_query.size(0), -1)
-        y_query = y_query.to(device)
+#         x_query = x_query.to(device).view(x_query.size(0), -1)
+#         y_query = y_query.to(device)
 
-        meta_train_loss = meta_train_loss / (num_domains - 1)
+#         meta_train_loss = meta_train_loss / (num_domains - 1)
 
-        # print(f'meta_train_loss / (num_domains - 1):{meta_train_loss}')
+#         # print(f'meta_train_loss / (num_domains - 1):{meta_train_loss}')
 
-        logits_query, _ = self.network(
-            x_query,
-            meta_loss=meta_train_loss,
-            meta_step_size=self.meta_step_size,
-            stop_gradient=False,
-        )
+#         logits_query, _ = self.network(
+#             x_query,
+#             meta_loss=meta_train_loss,
+#             meta_step_size=self.meta_step_size,
+#             stop_gradient=False,
+#         )
 
-        meta_val_loss = F.cross_entropy(logits_query, y_query)
+#         meta_val_loss = F.cross_entropy(logits_query, y_query)
 
-        # MLDG objective
-        total_loss = meta_train_loss + self.meta_beta * meta_val_loss
+#         # MLDG objective
+#         total_loss = meta_train_loss + self.meta_beta * meta_val_loss
 
-        # init the grad to zeros first
-        self.optimizer.zero_grad()
+#         # init the grad to zeros first
+#         self.optimizer.zero_grad()
 
-        # backward your network
-        total_loss.backward()
+#         # backward your network
+#         total_loss.backward()
 
-        self.optimizer.step()
+#         self.optimizer.step()
 
-        return {
-            "loss": total_loss.item(),
-            "meta_train_loss": meta_train_loss.item(),
-            "meta_val_loss": meta_val_loss.item(),
-            "query_idx": int(query_idx),
-        }
+#         return {
+#             "loss": total_loss.item(),
+#             "meta_train_loss": meta_train_loss.item(),
+#             "meta_val_loss": meta_val_loss.item(),
+#             "query_idx": int(query_idx),
+#         }
 
-class MLDGWeightedProto(ERM):
+# class MLDGWeightedProto(ERM):
 
+#     def __init__(self,input_shape,num_classes,num_domains,hparams):
+#         super().__init__(
+#             input_shape,
+#             num_classes,
+#             num_domains,
+#             hparams,
+#         )
+
+#         self.num_meta_test=hparams["n_meta_test"]
+#         self.update_count=0
+
+#         feat_dim=self.featurizer.n_outputs
+
+#         self.prototypes=nn.Parameter(
+#             F.normalize(
+#                 torch.randn(num_classes,feat_dim),
+#                 dim=1,
+#             )
+#         )
+
+#         self.mem_weight=hparams.get(
+#             "mem_weight",
+#             0.1,
+#         )
+
+#         self.proto_warmup=hparams.get(
+#             "proto_warmup",
+#             1000,
+#         )
+
+#         self.min_samples_per_class=hparams.get(
+#             "proto_min_samples",
+#             4,
+#         )
+
+#         self.optimizer=torch.optim.Adam(
+#             [
+#                 {
+#                     "params":self.network.parameters(),
+#                     "lr":hparams["lr"],
+#                 },
+#                 {
+#                     "params":self.prototypes,
+#                     "lr":hparams["lr"]*0.1,
+#                 },
+#             ],
+#             weight_decay=hparams["weight_decay"],
+#         )
+
+
+#     def get_mem_weight(self):
+
+#         if self.update_count < self.proto_warmup:
+#             return 0.0
+
+#         if self.update_count < self.proto_warmup*2:
+
+#             return self.mem_weight * (
+#                 (self.update_count-self.proto_warmup)
+#                 /
+#                 self.proto_warmup
+#             )
+
+#         return self.mem_weight
+
+
+#     def memory_alignment_loss(
+#         self,
+#         features,
+#         labels,
+#         logits,
+#     ):
+
+#         features=F.normalize(
+#             features,
+#             dim=1,
+#         )
+
+#         prototypes=F.normalize(
+#             self.prototypes,
+#             dim=1,
+#         )
+
+#         with torch.no_grad():
+
+#             confidence=(
+#                 F.softmax(
+#                     logits,
+#                     dim=1,
+#                 )
+#                 .max(dim=1)
+#                 .values
+#             )
+
+#             if self.update_count < self.proto_warmup:
+
+#                 weights=torch.ones_like(
+#                     confidence
+#                 )
+
+#             else:
+
+#                 weights=confidence**2
+
+
+#         loss=features.new_tensor(0.)
+#         count=0
+
+
+#         for c in labels.unique():
+
+#             mask=labels==c
+
+#             if mask.sum()<self.min_samples_per_class:
+#                 continue
+
+
+#             class_features=features[mask]
+
+#             class_weights=weights[mask]
+
+
+#             centroid=(
+#                 class_features
+#                 *
+#                 class_weights.unsqueeze(1)
+#             ).sum(dim=0)
+
+
+#             centroid/=(
+#                 class_weights.sum()
+#                 +
+#                 1e-8
+#             )
+
+
+#             centroid=F.normalize(
+#                 centroid,
+#                 dim=0,
+#             )
+
+
+#             loss+=(
+#                 1-
+#                 F.cosine_similarity(
+#                     prototypes[c],
+#                     centroid,
+#                     dim=0,
+#                 )
+#             )
+
+#             count+=1
+
+
+#         if count==0:
+#             return self.prototypes.sum()*0.
+
+
+#         return loss/count
+
+#     def update(self,minibatches,unlabeled=None):
+
+#         num_mb=len(minibatches)
+#         objective=0
+
+#         current_mem_weight=self.get_mem_weight()
+
+#         self.optimizer.zero_grad()
+
+
+#         for p in self.network.parameters():
+
+#             if p.grad is None:
+
+#                 p.grad=torch.zeros_like(p)
+
+
+#         for (xi,yi),(xj,yj) in split_meta_train_test(
+#             minibatches,
+#             self.num_meta_test
+#         ):
+
+#             inner_net=copy.deepcopy(
+#                 self.network
+#             )
+
+
+#             inner_opt=torch.optim.Adam(
+#                 inner_net.parameters(),
+#                 lr=self.hparams["lr"],
+#                 weight_decay=self.hparams["weight_decay"],
+#             )
+
+
+#             # -------------------------
+#             # Inner meta-train update
+#             # -------------------------
+
+#             features_i=inner_net[0](xi)
+
+#             logits_i=inner_net[1](
+#                 features_i
+#             )
+
+
+#             inner_ce=F.cross_entropy(
+#                 logits_i,
+#                 yi,
+#             )
+
+
+#             inner_mem=self.memory_alignment_loss(
+#                 features_i,
+#                 yi,
+#                 logits_i,
+#             )
+
+
+#             inner_obj=(
+#                 inner_ce
+#                 +
+#                 current_mem_weight*inner_mem
+#             )
+
+
+#             inner_opt.zero_grad()
+
+#             inner_obj.backward()
+
+#             inner_opt.step()
+
+
+#             for p_tgt,p_src in zip(
+#                 self.network.parameters(),
+#                 inner_net.parameters(),
+#             ):
+
+#                 if p_src.grad is not None:
+
+#                     p_tgt.grad.data.add_(
+#                         p_src.grad.data/num_mb
+#                     )
+
+
+#             objective+=inner_obj.item()
+
+
+#             # -------------------------
+#             # Meta-test objective
+#             # -------------------------
+
+#             features_j=inner_net[0](xj)
+
+#             logits_j=inner_net[1](
+#                 features_j
+#             )
+
+
+#             loss_inner_j=(
+#                 F.cross_entropy(
+#                     logits_j,
+#                     yj,
+#                 )
+#                 +
+#                 current_mem_weight*
+#                 self.memory_alignment_loss(
+#                     features_j,
+#                     yj,
+#                     logits_j,
+#                 )
+#             )
+
+
+#             grad_inner_j=autograd.grad(
+#                 loss_inner_j,
+#                 inner_net.parameters(),
+#                 allow_unused=True,
+#                 retain_graph=True,
+#             )
+
+
+#             proto_grad=autograd.grad(
+#                 loss_inner_j,
+#                 self.prototypes,
+#                 allow_unused=True,
+#             )[0]
+
+
+#             objective+=(
+#                 self.hparams["mldg_beta"]*
+#                 loss_inner_j.item()
+#             )
+
+
+#             for p,g_j in zip(
+#                 self.network.parameters(),
+#                 grad_inner_j,
+#             ):
+
+#                 if g_j is not None:
+
+#                     p.grad.data.add_(
+#                         self.hparams["mldg_beta"]*
+#                         g_j.data/
+#                         num_mb
+#                     )
+
+
+#             if proto_grad is not None:
+
+#                 if self.prototypes.grad is None:
+
+#                     self.prototypes.grad=torch.zeros_like(
+#                         self.prototypes
+#                     )
+
+
+#                 self.prototypes.grad.data.add_(
+#                     self.hparams["mldg_beta"]*
+#                     proto_grad.data/
+#                     num_mb
+#                 )
+
+
+#         objective/=len(minibatches)
+
+
+#         self.optimizer.step()
+
+
+#         self.update_count+=1
+
+
+#         return {
+#             "loss":objective,
+#             "mem_weight":current_mem_weight,
+#             "step":self.update_count,
+#         }
+
+
+#     def predict(self,x):
+
+#         return self.network(x)
+
+# class MLDGLPMCL(LPMCL):
+#     """
+#     MLDG + LPMCL
+
+#     ERM backbone:
+#         Featurizer + Classifier
+
+#     Inner loop:
+#         Support domains
+#         Cross-entropy only
+
+#     Outer loop:
+#         Query domain
+#         Cross-entropy
+#         + Prototype contrastive loss
+#         + Memory alignment loss
+
+#     Meta-gradients are computed through the differentiable
+#     inner optimisation using higher.
+#     """
+
+#     def __init__(
+#         self,
+#         input_shape,
+#         num_classes,
+#         num_domains,
+#         hparams,
+#     ):
+
+#         super().__init__(
+#             input_shape,
+#             num_classes,
+#             num_domains,
+#             hparams,
+#         )
+
+#         self.meta_beta = hparams.get(
+#             "meta_val_beta",
+#             1.0,
+#         )
+
+#         self.meta_step_size = hparams.get(
+#             "meta_step_size",
+#             0.5,
+#         )
+
+#         self.update_count = 0
+
+#     def compute_ce_loss(
+#         self,
+#         network,
+#         x,
+#         y,
+#     ):
+
+#         features = network[0](x)
+
+#         logits = network[1](
+#             features
+#         )
+
+#         ce = self.ce_loss(
+#             logits,
+#             y,
+#         )
+
+#         return ce
+
+#     def build_batch_prototypes(
+#         self,
+#         features,
+#         labels,
+#     ):
+
+#         features = F.normalize(
+#             features,
+#             dim=1,
+#         )
+
+#         batch_protos = {}
+
+#         for c in torch.unique(labels):
+
+#             mask = labels == c
+
+#             if mask.sum() == 0:
+#                 continue
+
+#             proto = features[mask].mean(
+#                 dim=0,
+#             )
+
+#             batch_protos[int(c.item())] = F.normalize(
+#                 proto,
+#                 dim=0,
+#             )
+
+#         return batch_protos
+
+#     def memory_alignment_loss(
+#         self,
+#         batch_protos,
+#     ):
+
+#         device = next(
+#             self.parameters()
+#         ).device
+
+#         if len(batch_protos) == 0:
+
+#             return torch.tensor(
+#                 0.0,
+#                 device=device,
+#             )
+
+#         loss = 0.0
+
+#         count = 0
+
+#         for c, batch_proto in batch_protos.items():
+
+#             if c >= self.num_classes:
+#                 continue
+
+#             memory_proto = F.normalize(
+#                 self.prototypes[c],
+#                 dim=0,
+#             )
+
+#             loss += (
+#                 1.0
+#                 -
+#                 F.cosine_similarity(
+#                     batch_proto,
+#                     memory_proto,
+#                     dim=0,
+#                 )
+#             )
+
+#             count += 1
+
+#         if count == 0:
+
+#             return torch.tensor(
+#                 0.0,
+#                 device=device,
+#             )
+
+#         return loss / count
+
+#     def compute_lpmcl_loss(
+#         self,
+#         network,
+#         x,
+#         y,
+#     ):
+
+#         features = network[0](x)
+
+#         logits = network[1](
+#             features
+#         )
+
+#         ce = self.ce_loss(
+#             logits,
+#             y,
+#         )
+
+#         proto_loss = self.prototype_contrastive_loss(
+#             features,
+#             y,
+#         )
+
+#         batch_protos = self.build_batch_prototypes(
+#             features,
+#             y,
+#         )
+
+#         mem_loss = self.memory_alignment_loss(
+#             batch_protos,
+#         )
+
+#         total_loss = (
+#             ce
+#             +
+#             self.proto_weight * proto_loss
+#             +
+#             self.mem_weight * mem_loss
+#         )
+
+#         return {
+#             "loss": total_loss,
+#             "ce": ce,
+#             "proto": proto_loss,
+#             "mem": mem_loss,
+#         }
+#     def update(
+#         self,
+#         minibatches,
+#         unlabeled=None,
+#     ):
+
+#         device = next(
+#             self.network.parameters()
+#         ).device
+
+#         num_domains = len(
+#             minibatches
+#         )
+
+#         query_idx = np.random.choice(
+#             num_domains
+#         )
+
+#         inner_optimizer = torch.optim.Adam(
+#             self.network.parameters(),
+#             lr=self.hparams["lr"],
+#             weight_decay=self.hparams["weight_decay"],
+#         )
+
+#         with higher.innerloop_ctx(
+#             self.network,
+#             inner_optimizer,
+#             copy_initial_weights=False,
+#         ) as (inner_net, inner_opt):
+
+#             # ==========================
+#             # INNER LOOP
+#             # Support domains
+#             # CE only
+#             # ==========================
+
+#             meta_train_loss = 0.0
+
+#             support_count = 0
+
+#             for domain_idx, (x, y) in enumerate(minibatches):
+
+#                 if domain_idx == query_idx:
+#                     continue
+
+#                 x = x.to(device)
+#                 y = y.to(device)
+
+#                 ce_loss = self.compute_ce_loss(
+#                     inner_net,
+#                     x,
+#                     y,
+#                 )
+
+#                 meta_train_loss += ce_loss
+
+#                 support_count += 1
+
+#             meta_train_loss /= support_count
+
+#             inner_opt.step(
+#                 meta_train_loss
+#             )
+
+#             # ==========================
+#             # OUTER LOOP
+#             # Query domain
+#             # LPMCL objective
+#             # ==========================
+
+#             x_query, y_query = minibatches[
+#                 query_idx
+#             ]
+
+#             x_query = x_query.to(device)
+#             y_query = y_query.to(device)
+
+#             #temp
+#             with torch.no_grad():
+#                 ce_before = self.compute_ce_loss(
+#                     self.network,
+#                     x_query,
+#                     y_query,
+#                 ).item()
+
+#             query_losses = self.compute_lpmcl_loss(
+#                 inner_net,
+#                 x_query,
+#                 y_query,
+#             )
+
+#             #temp
+#             ce_after = query_losses["ce"].item()
+#             adaptation_gain = (
+#                 ce_before
+#                 - ce_after
+#             )
+
+#             meta_val_loss = query_losses["loss"]
+
+#             total_loss = (
+#                 self.meta_beta
+#                 * meta_val_loss
+#             )
+
+#             self.optimizer.zero_grad()
+
+#             total_loss.backward()
+
+#             #temp
+#             proto_grad_norm = 0.0
+#             if self.prototypes.grad is not None:
+
+#                 proto_grad_norm = (
+#                     self.prototypes.grad.norm().item()
+#                 )
+
+#             feature_grad_norm = 0.0
+#             for p in self.featurizer.parameters():
+
+#                 if p.grad is not None:
+
+#                     feature_grad_norm += (
+#                         p.grad.norm().item()
+#                     )
+
+#             self.optimizer.step()
+
+#             self.update_count += 1
+
+#             results = {
+#                 "loss": total_loss.item(),
+#                 "meta_train_ce": meta_train_loss.item(),
+#                 "meta_val_loss": meta_val_loss.item(),
+#                 "query_ce": query_losses["ce"].item(),
+#                 "query_proto": query_losses["proto"].item(),
+#                 "query_mem": query_losses["mem"].item(),
+#                 "query_idx": int(query_idx),
+#                 "adaptation_gain": adaptation_gain,
+#                 "proto_grad_norm": proto_grad_norm,
+#                 "feature_grad_norm": feature_grad_norm,
+#             }
+
+#         return results
+
+#     def predict(
+#         self,
+#         x,
+#     ):
+
+#         return self.network(x)
+
+class MLDG2(ERM):
     def __init__(self,input_shape,num_classes,num_domains,hparams):
-        super().__init__(
-            input_shape,
-            num_classes,
-            num_domains,
-            hparams,
-        )
+        super().__init__(input_shape,num_classes,num_domains,hparams)
 
-        self.num_meta_test=hparams["n_meta_test"]
-        self.update_count=0
-
-        feat_dim=self.featurizer.n_outputs
-
-        self.prototypes=nn.Parameter(
-            F.normalize(
-                torch.randn(num_classes,feat_dim),
-                dim=1,
-            )
-        )
-
-        self.mem_weight=hparams.get(
-            "mem_weight",
-            0.1,
-        )
-
-        self.proto_warmup=hparams.get(
-            "proto_warmup",
-            1000,
-        )
-
-        self.min_samples_per_class=hparams.get(
-            "proto_min_samples",
-            4,
-        )
-
+        self.meta_step_size=hparams.get("meta_step_size",0.5)
+        self.support_weight=hparams.get("support_weight",0.01)
+        self.query_weight=hparams.get("query_weight",0.03)
+        self.erm_classifier=self.classifier
+        self.meta_classifier=networks.Classifier(self.featurizer.n_outputs,num_classes,hparams['nonlinear_classifier'])
+        self.network=nn.Sequential(self.featurizer,self.erm_classifier)
         self.optimizer=torch.optim.Adam(
-            [
-                {
-                    "params":self.network.parameters(),
-                    "lr":hparams["lr"],
-                },
-                {
-                    "params":self.prototypes,
-                    "lr":hparams["lr"]*0.1,
-                },
-            ],
-            weight_decay=hparams["weight_decay"],
+            list(self.featurizer.parameters())+
+            list(self.erm_classifier.parameters())+
+            list(self.meta_classifier.parameters()),
+            lr=hparams["lr"],
+            weight_decay=hparams["weight_decay"]
         )
-
-
-    def get_mem_weight(self):
-
-        if self.update_count < self.proto_warmup:
-            return 0.0
-
-        if self.update_count < self.proto_warmup*2:
-
-            return self.mem_weight * (
-                (self.update_count-self.proto_warmup)
-                /
-                self.proto_warmup
-            )
-
-        return self.mem_weight
-
-
-    def memory_alignment_loss(
-        self,
-        features,
-        labels,
-        logits,
-    ):
-
-        features=F.normalize(
-            features,
-            dim=1,
-        )
-
-        prototypes=F.normalize(
-            self.prototypes,
-            dim=1,
-        )
-
-        with torch.no_grad():
-
-            confidence=(
-                F.softmax(
-                    logits,
-                    dim=1,
-                )
-                .max(dim=1)
-                .values
-            )
-
-            if self.update_count < self.proto_warmup:
-
-                weights=torch.ones_like(
-                    confidence
-                )
-
-            else:
-
-                weights=confidence**2
-
-
-        loss=features.new_tensor(0.)
-        count=0
-
-
-        for c in labels.unique():
-
-            mask=labels==c
-
-            if mask.sum()<self.min_samples_per_class:
-                continue
-
-
-            class_features=features[mask]
-
-            class_weights=weights[mask]
-
-
-            centroid=(
-                class_features
-                *
-                class_weights.unsqueeze(1)
-            ).sum(dim=0)
-
-
-            centroid/=(
-                class_weights.sum()
-                +
-                1e-8
-            )
-
-
-            centroid=F.normalize(
-                centroid,
-                dim=0,
-            )
-
-
-            loss+=(
-                1-
-                F.cosine_similarity(
-                    prototypes[c],
-                    centroid,
-                    dim=0,
-                )
-            )
-
-            count+=1
-
-
-        if count==0:
-            return self.prototypes.sum()*0.
-
-
-        return loss/count
+    def predict(self,x):
+        return self.network(x)
 
     def update(self,minibatches,unlabeled=None):
+        print("ERM classifier params:",sum(p.numel() for p in self.erm_classifier.parameters()))
+        print("Meta classifier params:",sum(p.numel() for p in self.meta_classifier.parameters()))
+        print("Featurizer params:",sum(p.numel() for p in self.featurizer.parameters()))
+                
+        device=next(self.parameters()).device
+        num_domains=len(minibatches)
 
-        num_mb=len(minibatches)
-        objective=0
+        all_x=torch.cat([x for x,_ in minibatches]).to(device)
+        all_y=torch.cat([y for _,y in minibatches]).to(device)
+        features=self.featurizer(all_x)
+        erm_loss=F.cross_entropy(self.erm_classifier(features),all_y)
 
-        current_mem_weight=self.get_mem_weight()
+        query_idx=np.random.choice(num_domains)
+        support_loss=0.0
+        support_count=0
+
+        for i,(x,y) in enumerate(minibatches):
+            if i==query_idx:
+                continue
+            x=x.to(device)
+            y=y.to(device)
+            f=self.featurizer(x).detach()
+            support_loss+=F.cross_entropy(self.meta_classifier(f),y)
+            support_count+=1
+
+        support_loss=support_loss/max(support_count,1)
+
+        meta_params=list(self.meta_classifier.parameters())
+        grads=torch.autograd.grad(support_loss,meta_params,create_graph=False)
+        fast_weights=[p-self.meta_step_size*g.detach() for p,g in zip(meta_params,grads)]
+
+        xq,yq=minibatches[query_idx]
+        xq=xq.to(device)
+        yq=yq.to(device)
+        fq=self.featurizer(xq).detach()
+
+        if len(fast_weights)==4:
+            w1,b1,w2,b2=fast_weights
+            query_logits=F.linear(F.relu(F.linear(fq,w1,b1)),w2,b2)
+        else:
+            w,b=fast_weights
+            query_logits=F.linear(fq,w,b)
+
+        query_loss=F.cross_entropy(query_logits,yq)
+
+        total_loss=erm_loss+self.support_weight*support_loss+self.query_weight*query_loss
+        # total_loss=erm_loss+self.support_weight*support_loss.detach()+self.query_weight*query_loss
 
         self.optimizer.zero_grad()
-
-
-        for p in self.network.parameters():
-
-            if p.grad is None:
-
-                p.grad=torch.zeros_like(p)
-
-
-        for (xi,yi),(xj,yj) in split_meta_train_test(
-            minibatches,
-            self.num_meta_test
-        ):
-
-            inner_net=copy.deepcopy(
-                self.network
-            )
-
-
-            inner_opt=torch.optim.Adam(
-                inner_net.parameters(),
-                lr=self.hparams["lr"],
-                weight_decay=self.hparams["weight_decay"],
-            )
-
-
-            # -------------------------
-            # Inner meta-train update
-            # -------------------------
-
-            features_i=inner_net[0](xi)
-
-            logits_i=inner_net[1](
-                features_i
-            )
-
-
-            inner_ce=F.cross_entropy(
-                logits_i,
-                yi,
-            )
-
-
-            inner_mem=self.memory_alignment_loss(
-                features_i,
-                yi,
-                logits_i,
-            )
-
-
-            inner_obj=(
-                inner_ce
-                +
-                current_mem_weight*inner_mem
-            )
-
-
-            inner_opt.zero_grad()
-
-            inner_obj.backward()
-
-            inner_opt.step()
-
-
-            for p_tgt,p_src in zip(
-                self.network.parameters(),
-                inner_net.parameters(),
-            ):
-
-                if p_src.grad is not None:
-
-                    p_tgt.grad.data.add_(
-                        p_src.grad.data/num_mb
-                    )
-
-
-            objective+=inner_obj.item()
-
-
-            # -------------------------
-            # Meta-test objective
-            # -------------------------
-
-            features_j=inner_net[0](xj)
-
-            logits_j=inner_net[1](
-                features_j
-            )
-
-
-            loss_inner_j=(
-                F.cross_entropy(
-                    logits_j,
-                    yj,
-                )
-                +
-                current_mem_weight*
-                self.memory_alignment_loss(
-                    features_j,
-                    yj,
-                    logits_j,
-                )
-            )
-
-
-            grad_inner_j=autograd.grad(
-                loss_inner_j,
-                inner_net.parameters(),
-                allow_unused=True,
-                retain_graph=True,
-            )
-
-
-            proto_grad=autograd.grad(
-                loss_inner_j,
-                self.prototypes,
-                allow_unused=True,
-            )[0]
-
-
-            objective+=(
-                self.hparams["mldg_beta"]*
-                loss_inner_j.item()
-            )
-
-
-            for p,g_j in zip(
-                self.network.parameters(),
-                grad_inner_j,
-            ):
-
-                if g_j is not None:
-
-                    p.grad.data.add_(
-                        self.hparams["mldg_beta"]*
-                        g_j.data/
-                        num_mb
-                    )
-
-
-            if proto_grad is not None:
-
-                if self.prototypes.grad is None:
-
-                    self.prototypes.grad=torch.zeros_like(
-                        self.prototypes
-                    )
-
-
-                self.prototypes.grad.data.add_(
-                    self.hparams["mldg_beta"]*
-                    proto_grad.data/
-                    num_mb
-                )
-
-
-        objective/=len(minibatches)
-
-
+        total_loss.backward()
+        grad_norm=torch.nn.utils.clip_grad_norm_(self.parameters(),1e9)
         self.optimizer.step()
 
-
-        self.update_count+=1
-
-
-        return {
-            "loss":objective,
-            "mem_weight":current_mem_weight,
-            "step":self.update_count,
-        }
-
-
-    def predict(self,x):
-
-        return self.network(x)
-
-class MLDGLPMCL(LPMCL):
-    """
-    MLDG + LPMCL
-
-    ERM backbone:
-        Featurizer + Classifier
-
-    Inner loop:
-        Support domains
-        Cross-entropy only
-
-    Outer loop:
-        Query domain
-        Cross-entropy
-        + Prototype contrastive loss
-        + Memory alignment loss
-
-    Meta-gradients are computed through the differentiable
-    inner optimisation using higher.
-    """
-
-    def __init__(
-        self,
-        input_shape,
-        num_classes,
-        num_domains,
-        hparams,
-    ):
-
-        super().__init__(
-            input_shape,
-            num_classes,
-            num_domains,
-            hparams,
-        )
-
-        self.meta_beta = hparams.get(
-            "meta_val_beta",
-            1.0,
-        )
-
-        self.meta_step_size = hparams.get(
-            "meta_step_size",
-            0.5,
-        )
-
-        self.update_count = 0
-
-    def compute_ce_loss(
-        self,
-        network,
-        x,
-        y,
-    ):
-
-        features = network[0](x)
-
-        logits = network[1](
-            features
-        )
-
-        ce = self.ce_loss(
-            logits,
-            y,
-        )
-
-        return ce
-
-    def build_batch_prototypes(
-        self,
-        features,
-        labels,
-    ):
-
-        features = F.normalize(
-            features,
-            dim=1,
-        )
-
-        batch_protos = {}
-
-        for c in torch.unique(labels):
-
-            mask = labels == c
-
-            if mask.sum() == 0:
-                continue
-
-            proto = features[mask].mean(
-                dim=0,
-            )
-
-            batch_protos[int(c.item())] = F.normalize(
-                proto,
-                dim=0,
-            )
-
-        return batch_protos
-
-    def memory_alignment_loss(
-        self,
-        batch_protos,
-    ):
-
-        device = next(
-            self.parameters()
-        ).device
-
-        if len(batch_protos) == 0:
-
-            return torch.tensor(
-                0.0,
-                device=device,
-            )
-
-        loss = 0.0
-
-        count = 0
-
-        for c, batch_proto in batch_protos.items():
-
-            if c >= self.num_classes:
-                continue
-
-            memory_proto = F.normalize(
-                self.prototypes[c],
-                dim=0,
-            )
-
-            loss += (
-                1.0
-                -
-                F.cosine_similarity(
-                    batch_proto,
-                    memory_proto,
-                    dim=0,
-                )
-            )
-
-            count += 1
-
-        if count == 0:
-
-            return torch.tensor(
-                0.0,
-                device=device,
-            )
-
-        return loss / count
-
-    def compute_lpmcl_loss(
-        self,
-        network,
-        x,
-        y,
-    ):
-
-        features = network[0](x)
-
-        logits = network[1](
-            features
-        )
-
-        ce = self.ce_loss(
-            logits,
-            y,
-        )
-
-        proto_loss = self.prototype_contrastive_loss(
-            features,
-            y,
-        )
-
-        batch_protos = self.build_batch_prototypes(
-            features,
-            y,
-        )
-
-        mem_loss = self.memory_alignment_loss(
-            batch_protos,
-        )
-
-        total_loss = (
-            ce
-            +
-            self.proto_weight * proto_loss
-            +
-            self.mem_weight * mem_loss
-        )
+        print({
+        "erm":erm_loss.item(),
+        "support":support_loss.item(),
+        "query":query_loss.item(),
+        "weighted_support":(self.support_weight*support_loss).item(),
+        "weighted_query":(self.query_weight*query_loss).item()
+        })
 
         return {
-            "loss": total_loss,
-            "ce": ce,
-            "proto": proto_loss,
-            "mem": mem_loss,
+            "loss":total_loss.item(),
+            "erm_loss":erm_loss.item(),
+            "support_loss":support_loss.item(),
+            "query_loss":query_loss.item(),
+            "weighted_support":(self.support_weight*support_loss).item(),
+            "weighted_query":(self.query_weight*query_loss).item(),
+            "query_idx":int(query_idx),
+            "grad_norm":grad_norm.item()
         }
-    def update(
-        self,
-        minibatches,
-        unlabeled=None,
-    ):
-
-        device = next(
-            self.network.parameters()
-        ).device
-
-        num_domains = len(
-            minibatches
-        )
-
-        query_idx = np.random.choice(
-            num_domains
-        )
-
-        inner_optimizer = torch.optim.Adam(
-            self.network.parameters(),
-            lr=self.hparams["lr"],
-            weight_decay=self.hparams["weight_decay"],
-        )
-
-        with higher.innerloop_ctx(
-            self.network,
-            inner_optimizer,
-            copy_initial_weights=False,
-        ) as (inner_net, inner_opt):
-
-            # ==========================
-            # INNER LOOP
-            # Support domains
-            # CE only
-            # ==========================
-
-            meta_train_loss = 0.0
-
-            support_count = 0
-
-            for domain_idx, (x, y) in enumerate(minibatches):
-
-                if domain_idx == query_idx:
-                    continue
-
-                x = x.to(device)
-                y = y.to(device)
-
-                ce_loss = self.compute_ce_loss(
-                    inner_net,
-                    x,
-                    y,
-                )
-
-                meta_train_loss += ce_loss
-
-                support_count += 1
-
-            meta_train_loss /= support_count
-
-            inner_opt.step(
-                meta_train_loss
-            )
-
-            # ==========================
-            # OUTER LOOP
-            # Query domain
-            # LPMCL objective
-            # ==========================
-
-            x_query, y_query = minibatches[
-                query_idx
-            ]
-
-            x_query = x_query.to(device)
-            y_query = y_query.to(device)
-
-            #temp
-            with torch.no_grad():
-                ce_before = self.compute_ce_loss(
-                    self.network,
-                    x_query,
-                    y_query,
-                ).item()
-
-            query_losses = self.compute_lpmcl_loss(
-                inner_net,
-                x_query,
-                y_query,
-            )
-
-            #temp
-            ce_after = query_losses["ce"].item()
-            adaptation_gain = (
-                ce_before
-                - ce_after
-            )
-
-            meta_val_loss = query_losses["loss"]
-
-            total_loss = (
-                self.meta_beta
-                * meta_val_loss
-            )
-
-            self.optimizer.zero_grad()
-
-            total_loss.backward()
-
-            #temp
-            proto_grad_norm = 0.0
-            if self.prototypes.grad is not None:
-
-                proto_grad_norm = (
-                    self.prototypes.grad.norm().item()
-                )
-
-            feature_grad_norm = 0.0
-            for p in self.featurizer.parameters():
-
-                if p.grad is not None:
-
-                    feature_grad_norm += (
-                        p.grad.norm().item()
-                    )
-
-            self.optimizer.step()
-
-            self.update_count += 1
-
-            results = {
-                "loss": total_loss.item(),
-                "meta_train_ce": meta_train_loss.item(),
-                "meta_val_loss": meta_val_loss.item(),
-                "query_ce": query_losses["ce"].item(),
-                "query_proto": query_losses["proto"].item(),
-                "query_mem": query_losses["mem"].item(),
-                "query_idx": int(query_idx),
-                "adaptation_gain": adaptation_gain,
-                "proto_grad_norm": proto_grad_norm,
-                "feature_grad_norm": feature_grad_norm,
-            }
-
-        return results
-
-    def predict(
-        self,
-        x,
-    ):
-
-        return self.network(x)
