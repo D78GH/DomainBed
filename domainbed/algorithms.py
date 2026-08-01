@@ -52,11 +52,12 @@ ALGORITHMS = [
     'SupCon', #JP added
     'PMCL', #JP added - Batch Prototype Memory Contrastive Learning
     'LPMCL', #JP added - Learnable Prototype Memory Contrastive Learning
-    'MLPMCL', #JP added - Multi-Learnable Prototype Memory Contrastive Learning
+    'MLPMCL', #JP added - Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
     # 'MLDGWeightedProto', #JP added
     # 'MLDGLPMCL' #JP added
     'MLPMCL_softmax', #JP added - Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
     'MLPMCL_softmax2', #JP added - Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 1e-5)
+    'MLDPMCL_softmax2' #JP added - Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 1e-5)
     'CORAL',
     'MMD',
     'DANN',
@@ -4881,3 +4882,94 @@ class MLPMCL_softmax2(ERM):
         self.optimizer.step()
         return{"loss":loss.item(),"ce_loss":ce.item(),"proto_loss":proto_loss.item(),"mem_loss":mem_loss.item()}
 
+class MLDPMCL_softmax2(ERM):
+    # multiple prototypes with learned softmax weighting/aggregation with lr 1e-5 and a prototype diversity loss added to encourage multiple distinct representative prototypes per class with 0.001 weighting for small regulariser contribution.
+    def __init__(self,input_shape,num_classes,num_domains,hparams):
+        super().__init__(input_shape,num_classes,num_domains,hparams)
+        self.num_classes=num_classes
+        self.num_prototypes=hparams.get("num_prototypes",3)
+        feat_dim=self.featurizer.n_outputs
+        self.prototypes=nn.Parameter(torch.randn(num_classes,self.num_prototypes,feat_dim)*0.02)
+        base_lr=self.hparams["lr"]
+        self.optimizer=torch.optim.Adam([
+            {"params":self.featurizer.parameters(),"lr":base_lr},
+            {"params":self.classifier.parameters(),"lr":base_lr},
+            {"params":[self.prototypes],"lr":base_lr*0.2},
+        ],weight_decay=self.hparams["weight_decay"])
+        self.temperature=hparams.get("proto_temperature",0.07)
+        self.proto_weight=hparams.get("proto_weight",1.0)
+        self.mem_weight=hparams.get("mem_weight",0.1)
+        self.div_weight=hparams.get("div_weight",0.001)
+        self.label_smoothing=hparams.get("label_smoothing",0.1)
+
+    def forward_features(self,x):
+        features=self.featurizer(x)
+        logits=self.classifier(features)
+        return logits,features
+
+    def ce_loss(self,outputs,labels):
+        if self.label_smoothing<=0:
+            return F.cross_entropy(outputs,labels)
+        log_probs=F.log_softmax(outputs,dim=1)
+        nll=-log_probs.gather(1,labels.unsqueeze(1)).squeeze(1)
+        smooth=-log_probs.mean(dim=1)
+        return ((1-self.label_smoothing)*nll+self.label_smoothing*smooth).mean()
+
+    def prototype_contrastive_loss(self,features,labels):
+        features=F.normalize(features,dim=1)
+        prototypes=F.normalize(self.prototypes,dim=2)
+        weighted_protos=[]
+        for f,y in zip(features,labels):
+            class_protos=prototypes[y]
+            sim=torch.matmul(class_protos,f)/self.temperature
+            weights=F.softmax(sim,dim=0)
+            weighted_proto=F.normalize((weights.unsqueeze(1)*class_protos).sum(0),dim=0)
+            weighted_protos.append(weighted_proto)
+        weighted_protos=torch.stack(weighted_protos)
+        logits=torch.matmul(features,weighted_protos.T)/self.temperature
+        targets=torch.arange(features.size(0),device=features.device)
+        return F.cross_entropy(logits,targets)
+
+    def memory_alignment_loss(self,batch_protos):
+        if len(batch_protos)==0:
+            return torch.tensor(0.0,device=self.prototypes.device)
+        loss=0.0
+        count=0
+        prototypes=F.normalize(self.prototypes,dim=2)
+        for c,batch_proto in batch_protos.items():
+            class_protos=prototypes[c]
+            sim=torch.matmul(class_protos,batch_proto)
+            weights=F.softmax(sim,dim=0)
+            memory_proto=F.normalize((weights.unsqueeze(1)*class_protos).sum(0),dim=0)
+            loss+=F.mse_loss(batch_proto,memory_proto)
+            count+=1
+        return loss/max(count,1)
+
+    def prototype_diversity_loss(self):
+        prototypes=F.normalize(self.prototypes,dim=2)
+        loss=0.0
+        for c in range(self.num_classes):
+            P=prototypes[c]
+            sim=P@P.T
+            mask=1-torch.eye(self.num_prototypes,device=P.device)
+            loss+=((sim*mask)**2).sum()/mask.sum()
+        return loss/self.num_classes
+
+    def update(self,minibatches,unlabeled=None):
+        all_x=torch.cat([x for x,y in minibatches])
+        all_y=torch.cat([y for x,y in minibatches])
+        logits,features=self.forward_features(all_x)
+        ce=self.ce_loss(logits,all_y)
+        proto_loss=self.prototype_contrastive_loss(features,all_y)
+        features_norm=F.normalize(features,dim=1)
+        batch_protos={}
+        for c in torch.unique(all_y):
+            mask=all_y==c
+            batch_protos[int(c.item())]=F.normalize(features_norm[mask].mean(0),dim=0)
+        mem_loss=self.memory_alignment_loss(batch_protos)
+        div_loss=self.prototype_diversity_loss()
+        loss=ce+self.proto_weight*proto_loss+self.mem_weight*mem_loss+self.div_weight*div_loss
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return {"loss":loss.item(),"ce_loss":ce.item(),"proto_loss":proto_loss.item(),"mem_loss":mem_loss.item(),"div_loss":div_loss.item()}
