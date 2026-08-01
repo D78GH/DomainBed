@@ -4504,7 +4504,7 @@ class MLDG2(ERM):
                 continue
             x=x.to(device)
             y=y.to(device)
-            f=self.featurizer(x).detach()
+            f=self.featurizer(x)
             support_loss+=F.cross_entropy(self.meta_classifier(f),y)
             support_count+=1
 
@@ -4517,7 +4517,7 @@ class MLDG2(ERM):
         xq,yq=minibatches[query_idx]
         xq=xq.to(device)
         yq=yq.to(device)
-        fq=self.featurizer(xq).detach()
+        fq=self.featurizer(xq)
 
         if len(fast_weights)==4:
             w1,b1,w2,b2=fast_weights
@@ -4528,9 +4528,8 @@ class MLDG2(ERM):
 
         query_loss=F.cross_entropy(query_logits,yq)
 
-        total_loss=erm_loss+self.support_weight*support_loss+self.query_weight*query_loss
-        # total_loss=erm_loss+self.support_weight*support_loss.detach()+self.query_weight*query_loss
-
+        total_loss=erm_loss+self.support_weight*support_loss.detach()+self.query_weight*query_loss
+        
         self.optimizer.zero_grad()
         total_loss.backward()
         grad_norm=torch.nn.utils.clip_grad_norm_(self.parameters(),1e9)
