@@ -55,6 +55,8 @@ ALGORITHMS = [
     'MLPMCL', #JP added - Multi-Learnable Prototype Memory Contrastive Learning
     # 'MLDGWeightedProto', #JP added
     # 'MLDGLPMCL' #JP added
+    'MLPMCL_softmax', #JP added - Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
+    'MLPMCL_softmax2', #JP added - Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 1e-5)
     'CORAL',
     'MMD',
     'DANN',
@@ -4637,6 +4639,7 @@ class MLDG2(ERM):
         }
 
 # class MLPMCL(ERM):
+#     # Uses a logsumexp for prototype contrastive learning loss formula
 #     def __init__(self,input_shape,num_classes,num_domains,hparams):
 #         super().__init__(input_shape,num_classes,num_domains,hparams)
 #         self.num_classes=num_classes
@@ -4710,13 +4713,34 @@ class MLDG2(ERM):
 #             "mem_loss":mem_loss.item()
 #         }
 
-class MLPMCL(ERM):
+class MLPMCL_softmax2(ERM):
+    # multiple prototypes with learned softmax weighting/aggregation with lr 5e-5
     def __init__(self,input_shape,num_classes,num_domains,hparams):
         super().__init__(input_shape,num_classes,num_domains,hparams)
         self.num_classes=num_classes
         self.num_prototypes=hparams.get("num_prototypes",3)
         feat_dim=self.featurizer.n_outputs
         self.prototypes=nn.Parameter(torch.randn(num_classes,self.num_prototypes,feat_dim)*0.02)
+        base_lr = self.hparams["lr"]
+
+        self.optimizer = torch.optim.Adam(
+            [
+                {
+                    "params": self.featurizer.parameters(),
+                    "lr": base_lr,
+                },
+                {
+                    "params": self.classifier.parameters(),
+                    "lr": base_lr,
+                },
+                {
+                    "params": [self.prototypes],
+                    "lr": base_lr * 0.2,   # slower prototype updates
+                },
+            ],
+            weight_decay=self.hparams["weight_decay"],
+        )
+        
         self.temperature=hparams.get("proto_temperature",0.07)
         self.proto_weight=hparams.get("proto_weight",1.0)
         self.mem_weight=hparams.get("mem_weight",0.1)
@@ -4778,7 +4802,16 @@ class MLPMCL(ERM):
             batch_protos[int(c.item())]=F.normalize(features_norm[mask].mean(0),dim=0)
         mem_loss=self.memory_alignment_loss(batch_protos)
         loss=ce+self.proto_weight*proto_loss+self.mem_weight*mem_loss
+        proto_before = self.prototypes.detach().clone()
         self.optimizer.zero_grad()
         loss.backward()
+        print("Prototype grad norm:", self.prototypes.grad.norm())
         self.optimizer.step()
+        proto_after = self.prototypes.detach().clone()
+
+        print(
+            "Prototype parameter change:",
+            (proto_after - proto_before).norm()
+        )
         return{"loss":loss.item(),"ce_loss":ce.item(),"proto_loss":proto_loss.item(),"mem_loss":mem_loss.item()}
+
