@@ -57,6 +57,8 @@ ALGORITHMS = [
     'MLDPMCL_softmax', #JP added - Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
     'MLPMCL_softmax2', #JP added - Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 1e-5)
     'MLDPMCL_softmax2' #JP added - Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 1e-5)
+    'MLAPMCL_softmax' #JP added - Multi-Learnable Adaptive Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
+    'MLADPMCL_softmax'#JP added - Multi-Learnable Adaptive Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
     'CORAL',
     'MMD',
     'DANN',
@@ -3860,6 +3862,144 @@ class MLDPMCL_softmax2(ERM):
         loss.backward()
         self.optimizer.step()
         return {"loss":loss.item(),"ce_loss":ce.item(),"proto_loss":proto_loss.item(),"mem_loss":mem_loss.item(),"div_loss":div_loss.item()}
+
+class MLAPMCL_softmax(ERM):
+    # adaptive multiple prototypes with learned softmax weighting/aggregation
+    # adaptive identity/class-aware prototype contrastive loss based on feature distribution shift
+    def __init__(self,input_shape,num_classes,num_domains,hparams):
+        super().__init__(input_shape,num_classes,num_domains,hparams)
+        self.num_classes=num_classes
+        self.num_prototypes=hparams.get("num_prototypes",3)
+        feat_dim=self.featurizer.n_outputs
+        self.prototypes=nn.Parameter(torch.randn(num_classes,self.num_prototypes,feat_dim)*0.02)
+        self.temperature=hparams.get("proto_temperature",0.07)
+        self.proto_weight=hparams.get("proto_weight",1.0)
+        self.mem_weight=hparams.get("mem_weight",0.01)
+        self.label_smoothing=hparams.get("label_smoothing",0.1)
+        self.shift_tau=hparams.get("shift_tau",0.5)
+        self.shift_scale=hparams.get("shift_scale",0.15)
+        base_lr=self.hparams["lr"]
+        self.optimizer=torch.optim.Adam(
+            [
+                {"params":self.featurizer.parameters(),"lr":base_lr},
+                {"params":self.classifier.parameters(),"lr":base_lr},
+                {"params":[self.prototypes],"lr":base_lr*0.2},
+            ],
+            weight_decay=self.hparams["weight_decay"],
+        )
+
+    def forward_features(self,x):
+        features=self.featurizer(x)
+        logits=self.classifier(features)
+        return logits,features
+
+    def ce_loss(self,outputs,labels):
+        if self.label_smoothing<=0:
+            return F.cross_entropy(outputs,labels)
+        log_probs=F.log_softmax(outputs,dim=1)
+        nll=-log_probs.gather(1,labels.unsqueeze(1)).squeeze(1)
+        smooth=-log_probs.mean(dim=1)
+        return ((1-self.label_smoothing)*nll+self.label_smoothing*smooth).mean()
+
+    def compute_domain_shift(self,domain_features):
+        if len(domain_features)<=1:
+            return torch.tensor(0.0,device=domain_features[0].device)
+        domain_means=[F.normalize(f.mean(0),dim=0) for f in domain_features]
+        domain_means=torch.stack(domain_means)
+        distances=[]
+        for i in range(len(domain_means)):
+            for j in range(i+1,len(domain_means)):
+                distances.append(torch.norm(domain_means[i]-domain_means[j]))
+        return torch.stack(distances).mean()
+
+    def identity_prototype_loss(self,features,labels):
+        features=F.normalize(features,dim=1)
+        prototypes=F.normalize(self.prototypes,dim=2)
+        weighted_protos=[]
+        for f,y in zip(features,labels):
+            class_protos=prototypes[y]
+            sim=torch.matmul(class_protos,f)/self.temperature
+            weights=F.softmax(sim,dim=0)
+            weighted_proto=F.normalize((weights.unsqueeze(1)*class_protos).sum(0),dim=0)
+            weighted_protos.append(weighted_proto)
+        weighted_protos=torch.stack(weighted_protos)
+        logits=torch.matmul(features,weighted_protos.T)/self.temperature
+        targets=torch.arange(features.size(0),device=features.device)
+        return F.cross_entropy(logits,targets)
+
+    def class_prototype_loss(self,features,labels):
+        features=F.normalize(features,dim=1)
+        prototypes=F.normalize(self.prototypes,dim=2)
+        all_prototypes=prototypes.reshape(self.num_classes*self.num_prototypes,-1)
+        losses=[]
+        for f,y in zip(features,labels):
+            logits=torch.matmul(all_prototypes,f)/self.temperature
+            mask=torch.zeros(self.num_classes*self.num_prototypes,device=f.device)
+            start=y*self.num_prototypes
+            end=start+self.num_prototypes
+            mask[start:end]=1
+            log_prob=F.log_softmax(logits,dim=0)
+            losses.append(-(mask*log_prob).sum()/mask.sum())
+        return torch.stack(losses).mean()
+        def memory_alignment_loss(self,batch_protos):
+        if len(batch_protos)==0:
+            return torch.tensor(0.0,device=self.prototypes.device)
+        loss=0.0
+        count=0
+        prototypes=F.normalize(self.prototypes,dim=2)
+        for c,batch_proto in batch_protos.items():
+            class_protos=prototypes[c]
+            sim=torch.matmul(class_protos,batch_proto)
+            weights=F.softmax(sim,dim=0)
+            memory_proto=F.normalize((weights.unsqueeze(1)*class_protos).sum(0),dim=0)
+            loss+=F.mse_loss(batch_proto,memory_proto)
+            count+=1
+        return loss/max(count,1)
+
+    def update(self,minibatches,unlabeled=None):
+        domain_features=[]
+        for x,y in minibatches:
+            with torch.no_grad():
+                _,f=self.forward_features(x)
+            domain_features.append(f)
+        domain_shift=self.compute_domain_shift(domain_features)
+        alpha=0.2+0.8*torch.sigmoid(-(domain_shift-self.shift_tau)/self.shift_scale)
+
+        all_x=torch.cat([x for x,y in minibatches])
+        all_y=torch.cat([y for x,y in minibatches])
+        logits,features=self.forward_features(all_x)
+        ce=self.ce_loss(logits,all_y)
+
+        identity_loss=self.identity_prototype_loss(features,all_y)
+        class_loss=self.class_prototype_loss(features,all_y)
+        proto_loss=alpha*identity_loss+(1-alpha)*class_loss
+
+        features_norm=F.normalize(features,dim=1)
+        batch_protos={}
+        for c in torch.unique(all_y):
+            mask=all_y==c
+            batch_protos[int(c.item())]=F.normalize(features_norm[mask].mean(0),dim=0)
+
+        mem_loss=self.memory_alignment_loss(batch_protos)
+        loss=ce+self.proto_weight*proto_loss+self.mem_weight*mem_loss
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {
+            "loss":loss.item(),
+            "ce_loss":ce.item(),
+            "proto_loss":proto_loss.item(),
+            "identity_loss":identity_loss.item(),
+            "class_loss":class_loss.item(),
+            "mem_loss":mem_loss.item(),
+            "domain_shift":domain_shift.item(),
+            "alpha":alpha.item()
+        }
+
+    def predict(self,x):
+        return self.network(x)
 
 class MLADPMCL_softmax(ERM):
     # adaptive multiple prototypes with softmax weighting/aggregation.
