@@ -3941,7 +3941,8 @@ class MLAPMCL_softmax(ERM):
             log_prob=F.log_softmax(logits,dim=0)
             losses.append(-(mask*log_prob).sum()/mask.sum())
         return torch.stack(losses).mean()
-        def memory_alignment_loss(self,batch_protos):
+        
+    def memory_alignment_loss(self,batch_protos):
         if len(batch_protos)==0:
             return torch.tensor(0.0,device=self.prototypes.device)
         loss=0.0
