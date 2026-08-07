@@ -375,3 +375,21 @@ class WholeFish(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+class WholeFish_prototype(nn.Module):
+    def __init__(self,input_shape,num_classes,hparams,weights=None):
+        super(WholeFish_prototype,self).__init__()
+        self.featurizer=Featurizer(input_shape,hparams)
+        self.classifier=Classifier(self.featurizer.n_outputs,num_classes,hparams["nonlinear_classifier"])
+        self.num_prototypes=hparams.get("num_prototypes",3)
+        self.prototypes=nn.Parameter(torch.randn(num_classes,self.num_prototypes,self.featurizer.n_outputs)*0.02)
+        if weights is not None:
+            self.load_state_dict(copy.deepcopy(weights))
+
+    def reset_weights(self,weights):
+        self.load_state_dict(copy.deepcopy(weights))
+
+    def forward(self,x):
+        features=self.featurizer(x)
+        logits=self.classifier(features)
+        return logits,features
