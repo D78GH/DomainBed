@@ -145,9 +145,9 @@ def download_vlcs(data_dir):
 
         shutil.copyfile(src_path, dst_file)
         
-        # Clean up temporary download/extraction directory
-        if os.path.exists(tmp_path):
-            shutil.rmtree(tmp_path)
+    # Clean up temporary download/extraction directory
+    if os.path.exists(tmp_path):
+        shutil.rmtree(tmp_path)
 
 # MNIST #######################################################################
 
