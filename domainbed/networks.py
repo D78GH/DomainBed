@@ -36,14 +36,6 @@ def remove_batch_norm_from_resnet(model):
     model.train()
     return model
 
-class IdentityFeaturizer(nn.Module):
-
-    def __init__(self, input_shape):
-        super().__init__()
-        self.n_outputs = input_shape[0]
-
-    def forward(self, x):
-        return x
 
 class Identity(nn.Module):
     """An identity layer"""
@@ -79,56 +71,6 @@ class MLP(nn.Module):
         x = self.activation(x) # for URM; does not affect other algorithms
         return x
 
-# JP added
-class MetaMLP(nn.Module):
-    """
-    Two-layer MLP matching Li et al.'s implementation.
-    """
-
-    def __init__(self, n_inputs, n_outputs, hparams):
-        super().__init__()
-
-        hidden_dim = hparams["mlp_width"]
-
-        self.fc1 = nn.Linear(n_inputs, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, n_outputs)
-
-        self.n_outputs = hidden_dim
-
-    def forward(self,
-                x,
-                meta_loss=None,
-                meta_step_size=None,
-                stop_gradient=False):
-
-        x = linear(
-            inputs=x,
-            weight=self.fc1.weight,
-            bias=self.fc1.bias,
-            meta_loss=meta_loss,
-            meta_step_size=meta_step_size,
-            stop_gradient=stop_gradient,
-        )
-
-        x = F.relu(x)
-
-        features = x
-
-        logits = linear(
-            inputs=x,
-            weight=self.fc2.weight,
-            bias=self.fc2.bias,
-            meta_loss=meta_loss,
-            meta_step_size=meta_step_size,
-            stop_gradient=stop_gradient,
-        )
-
-        end_points = {
-            "Features": features,
-            "Predictions": F.softmax(logits, dim=-1)
-        }
-
-        return logits, end_points
 
 class CLIPFeaturizer(nn.Module):
     def __init__(self, hparams):
@@ -160,6 +102,7 @@ class CLIPFeaturizer(nn.Module):
         )
 
         return features
+
 
 class DinoV2(torch.nn.Module):
     """ """
@@ -323,6 +266,7 @@ class ContextNet(nn.Module):
     def forward(self, x):
         return self.context_net(x)
 
+
 def Featurizer(input_shape, hparams):
     """Auto-select an appropriate featurizer for the given input shape."""
     if len(input_shape) == 1:
@@ -375,6 +319,7 @@ class WholeFish(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
 
 class WholeFish_prototype(nn.Module):
     def __init__(self,input_shape,num_classes,hparams,weights=None):
