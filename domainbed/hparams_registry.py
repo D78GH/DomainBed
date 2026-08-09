@@ -42,11 +42,7 @@ def _hparams(algorithm, dataset, random_seed):
     # TODO: nonlinear classifiers disabled
     _hparam('nonlinear_classifier', False,
             lambda r: bool(r.choice([False, False])))
-    # JP added
-    _hparam('mlp_width', 256, lambda r: 256)
-    _hparam('mlp_depth', 3, lambda r: 3)
-    _hparam('mlp_dropout', 0.0, lambda r: 0.0)
-    _hparam('subset_fraction', 1.0, lambda r: 1.0)
+    # JP added clip
     _hparam('clip', False, lambda r: False)
     _hparam('clip_model', 'ViT-B-32', lambda r: 'ViT-B-32')
     _hparam('clip_pretrained', 'laion2b_s34b_b79k',
@@ -68,9 +64,10 @@ def _hparams(algorithm, dataset, random_seed):
     elif algorithm == 'Fish':
         _hparam('meta_lr', 0.5, lambda r:r.choice([0.05, 0.1, 0.5]))
     
+    # JP added FishMLPMCL
     elif algorithm == 'FishMLPMCL':
         _hparam('meta_lr',0.5,lambda r:float(r.choice([0.05,0.1,0.5])))
-        _hparam('num_prototypes',3,lambda r:int(r.choice([2,3,5])))
+        _hparam('num_prototypes',4,lambda r:int(r.choice([2,3,5])))
         _hparam('proto_weight',1.0,lambda r:float(r.choice([0.1,0.5,1.0])))
         _hparam('mem_weight',0.1,lambda r:float(r.choice([0.01,0.05,0.1])))
 
@@ -118,10 +115,6 @@ def _hparams(algorithm, dataset, random_seed):
     elif algorithm == "MLDG":
         _hparam('mldg_beta', 1., lambda r: 10**r.uniform(-1, 1))
         _hparam('n_meta_test', 2, lambda r:  r.choice([1, 2]))
-
-    elif algorithm == "MLDGWeightedProto": # JP added
-        _hparam('mldg_beta', 1., lambda r: 10**r.uniform(-1, 1))
-        _hparam('n_meta_test', 2, lambda r: int(r.choice([1, 2])))
 
     elif algorithm == "MTL":
         _hparam('mtl_ema', .99, lambda r: r.choice([0.5, 0.9, 0.99, 1.]))
@@ -220,13 +213,7 @@ def _hparams(algorithm, dataset, random_seed):
     # Dataset-and-algorithm-specific hparam definitions. Each block of code
     # below corresponds to exactly one hparam. Avoid nested conditionals.
 
-    _hparam('identity_features', dataset == "PACSFeatures",lambda r: False) # JP added
-
-    if algorithm == "MLDG2":
-        _hparam('meta_step_size', 0.5, lambda r: 10**r.uniform(-1, 0))   # 0.1 - 1.0
-        _hparam('meta_val_beta', 1.0, lambda r: 10**r.uniform(-1, 1))    # 0.1 - 10
-        _hparam('lr', 5e-4, lambda r: 10**r.uniform(-5, -3))             # 1e-5 - 1e-3
-    elif dataset in SMALL_IMAGES:
+    if dataset in SMALL_IMAGES:
         if algorithm == "ADRMX":
             _hparam('lr', 3e-3, lambda r: r.choice([5e-4, 1e-3, 2e-3, 3e-3]))
         else:
