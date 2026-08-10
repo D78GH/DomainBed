@@ -67,7 +67,7 @@ def _hparams(algorithm, dataset, random_seed):
     # JP added FishMLPMCL
     elif algorithm == 'FishMLPMCL':
         _hparam('meta_lr',0.5,lambda r:float(r.choice([0.05,0.1,0.5])))
-        _hparam('num_prototypes',4,lambda r:int(r.choice([2,3,5])))
+        _hparam('num_prototypes',4,lambda r: 4)
         _hparam('proto_weight',1.0,lambda r:float(r.choice([0.1,0.5,1.0])))
         _hparam('mem_weight',0.1,lambda r:float(r.choice([0.01,0.05,0.1])))
 
