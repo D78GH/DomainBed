@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
-def _get_visualisation_path(filename):
-    visualisation_dir = os.path.join(args.output_dir, "visualisations")
+def _get_visualisation_path(output_dir, test_env, filename):
+    visualisation_dir = os.path.join(output_dir, "visualisations", f"test_env_{test_env}")
     os.makedirs(visualisation_dir, exist_ok=True)
     return os.path.join(visualisation_dir, filename)
 
@@ -28,7 +28,7 @@ def _extract_features(model, x, batch_size=32):
     return features
 
 @torch.no_grad()
-def prepare_prototype_pca(model, x, max_samples=1000, batch_size=32):
+def prepare_prototype_pca(model, x, max_samples=500, batch_size=32):
     features = _extract_features(model, x, batch_size=batch_size)
     if len(features) > max_samples:
         idx = torch.randperm(len(features))[:max_samples]
@@ -41,7 +41,7 @@ def prepare_prototype_pca(model, x, max_samples=1000, batch_size=32):
     return pca
 
 @torch.no_grad()
-def plot_prototypes(model, x, y, pca, step=None, max_samples=1000, batch_size=32):
+def plot_prototypes(model, x, y, pca, step=None, max_samples=500, batch_size=32, output_dir=".", test_env=0):
     was_training = model.training
     model.eval()
     if len(x) > max_samples:
@@ -61,12 +61,13 @@ def plot_prototypes(model, x, y, pca, step=None, max_samples=1000, batch_size=32
             ax.scatter(prototype_2d[idx, 0], prototype_2d[idx, 1], marker="X", s=250, color=plt.cm.tab10(c), edgecolor="black", linewidth=1.5, zorder=10)
             ax.annotate(f"C{c}-P{k}", (prototype_2d[idx, 0], prototype_2d[idx, 1]), xytext=(6, 6), textcoords="offset points", fontsize=9, fontweight="bold")
     step_name = "final" if step is None else str(step)
-    ax.set_title("MLPMCL Prototype Visualisation" if step is None else f"MLPMCL Prototype Visualisation - Step {step}", fontsize=14)
+    title = "MLPMCL Prototype Visualisation" if step is None else f"MLPMCL Prototype Visualisation - Step {step}"
+    ax.set_title(title, fontsize=14)
     ax.set_xlabel("PCA component 1")
     ax.set_ylabel("PCA component 2")
     ax.grid(alpha=0.2)
     plt.tight_layout()
-    save_path = _get_visualisation_path(f"mlpmcl_prototypes_step_{step_name}.png")
+    save_path = _get_visualisation_path(output_dir, test_env, f"mlpmcl_prototypes_step_{step_name}.png")
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved prototype visualisation to: {save_path}")
@@ -74,7 +75,7 @@ def plot_prototypes(model, x, y, pca, step=None, max_samples=1000, batch_size=32
         model.train()
 
 @torch.no_grad()
-def plot_domain_generalization(model, train_x, train_y, unseen_x, unseen_y, pca, step=None, max_samples=500, batch_size=32):
+def plot_domain_generalization(model, train_x, train_y, unseen_x, unseen_y, pca, step=None, max_samples=500, batch_size=32, output_dir=".", test_env=0):
     was_training = model.training
     model.eval()
     if len(train_x) > max_samples:
@@ -101,20 +102,21 @@ def plot_domain_generalization(model, train_x, train_y, unseen_x, unseen_y, pca,
             ax.scatter(prototype_2d[idx, 0], prototype_2d[idx, 1], marker="X", s=280, color=plt.cm.tab10(c), edgecolor="black", linewidth=1.5, zorder=10)
             ax.annotate(f"C{c}-P{k}", (prototype_2d[idx, 0], prototype_2d[idx, 1]), xytext=(6, 6), textcoords="offset points", fontsize=8, fontweight="bold")
     step_name = "final" if step is None else str(step)
-    ax.set_title("MLPMCL: Training vs Unseen-Domain Representations" if step is None else f"MLPMCL: Training vs Unseen-Domain Representations - Step {step}", fontsize=14)
+    title = "MLPMCL: Training vs Unseen-Domain Representations" if step is None else f"MLPMCL: Training vs Unseen-Domain Representations - Step {step}"
+    ax.set_title(title, fontsize=14)
     ax.set_xlabel("PCA component 1")
     ax.set_ylabel("PCA component 2")
     ax.legend()
     ax.grid(alpha=0.2)
     plt.tight_layout()
-    save_path = _get_visualisation_path(f"mlpmcl_domain_generalization_step_{step_name}.png")
+    save_path = _get_visualisation_path(output_dir, test_env, f"mlpmcl_domain_generalization_step_{step_name}.png")
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved domain generalization visualisation to: {save_path}")
     if was_training:
         model.train()
 
-def plot_learning_dynamics(history):
+def plot_learning_dynamics(history, output_dir=".", test_env=0):
     if not history:
         return
     steps = [x["step"] for x in history]
@@ -133,7 +135,7 @@ def plot_learning_dynamics(history):
     ax.legend()
     ax.grid(alpha=0.2)
     plt.tight_layout()
-    save_path = _get_visualisation_path("mlpmcl_learning_dynamics.png")
+    save_path = _get_visualisation_path(output_dir, test_env, "mlpmcl_learning_dynamics.png")
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved learning dynamics visualisation to: {save_path}")

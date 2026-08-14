@@ -189,34 +189,35 @@ if __name__ == "__main__":
 
     algorithm.to(device)
 
-    # JP added
-    def collect_visualization_data(split, max_samples=1000):
-        loader = FastDataLoader(dataset=split, batch_size=64, num_workers=0)
-        xs = []
-        ys = []
-        total = 0
-        for x, y in loader:
-            remaining = max_samples - total
-            if remaining <= 0:
-                break
-            x = x[:remaining]
-            y = y[:remaining]
-            xs.append(x)
-            ys.append(y)
-            total += len(x)
-        return torch.cat(xs), torch.cat(ys)
-
+    # JP added: prepare training-domain and unseen-domain visualisation data.
     train_env_indices = [i for i in range(len(dataset)) if i not in args.test_envs]
-    train_vis_x, train_vis_y = collect_visualization_data(in_splits[train_env_indices[0]][0], 1000)
-    unseen_vis_x, unseen_vis_y = collect_visualization_data(out_splits[args.test_envs[0]][0], 1000)
+
+    if len(train_env_indices) == 0:
+        raise ValueError("No training environments available for visualisation.")
+
+    train_vis_x, train_vis_y = collect_visualization_data(
+        in_splits[train_env_indices[0]][0], 1000)
+
+    unseen_vis_x, unseen_vis_y = collect_visualization_data(
+        out_splits[args.test_envs[0]][0], 1000)
+
     visualization_x = torch.cat([train_vis_x, unseen_vis_x], dim=0)
-    visualization_pca = prepare_prototype_pca(algorithm, visualization_x, max_samples=500, batch_size=32)
+
+    # JP added: fit PCA once so all visualisations use the same coordinate system.
+    visualization_pca = prepare_prototype_pca(
+        algorithm,
+        visualization_x,
+        max_samples=500,
+        batch_size=32)
 
     train_minibatches_iterator = zip(*train_loaders)
     uda_minibatches_iterator = zip(*uda_loaders)
     checkpoint_vals = collections.defaultdict(lambda: [])
 
-    steps_per_epoch = min([len(env)/hparams['batch_size'] for env,_ in in_splits])
+    steps_per_epoch = min([
+        len(env) / hparams['batch_size']
+        for env, _ in in_splits
+    ])
 
     n_steps = args.steps or dataset.N_STEPS
     checkpoint_freq = args.checkpoint_freq or dataset.CHECKPOINT_FREQ
@@ -234,37 +235,67 @@ if __name__ == "__main__":
         }
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
-    learning_history = [] # JP added
+    # JP added: store loss values for the learning-dynamics plot.
+    learning_history = []
 
     last_results_keys = None
+
     for step in range(start_step, n_steps):
         print("STEP START", step)
         step_start_time = time.time()
 
         print("Getting minibatch...")
-        minibatches_device = [(x.to(device), y.to(device))
-            for x,y in next(train_minibatches_iterator)]
+        minibatches_device = [
+            (x.to(device), y.to(device))
+            for x, y in next(train_minibatches_iterator)
+        ]
         print("Minibatch moved to device")
+
         if args.task == "domain_adaptation":
-            uda_device = [x.to(device)
-                for x,_ in next(uda_minibatches_iterator)]
+            uda_device = [
+                x.to(device)
+                for x, _ in next(uda_minibatches_iterator)
+            ]
         else:
             uda_device = None
+
         print("Calling algorithm.update...")
         step_vals = algorithm.update(minibatches_device, uda_device)
         print("algorithm.update finished")
-        checkpoint_vals['step_time'].append(time.time() - step_start_time)
+
+        checkpoint_vals['step_time'].append(
+            time.time() - step_start_time
+        )
 
         for key, val in step_vals.items():
             checkpoint_vals[key].append(val)
 
-        # JP added
+        # JP added: create prototype/domain visualisations at selected checkpoints.
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
             visualisation_steps = {0, 2500, 5000, n_steps - 1}
-            if step in visualisation_steps:
-                plot_prototypes(algorithm, visualization_x, torch.cat([train_vis_y, unseen_vis_y]), visualization_pca, step=step)
-                plot_domain_generalization(algorithm, train_vis_x, train_vis_y, unseen_vis_x, unseen_vis_y, visualization_pca, step=step)
 
+            if step in visualisation_steps:
+                plot_prototypes(
+                    algorithm,
+                    visualization_x,
+                    torch.cat([train_vis_y, unseen_vis_y]),
+                    visualization_pca,
+                    args.output_dir,
+                    step=step,
+                    max_samples=500,
+                    batch_size=32)
+
+                plot_domain_generalization(
+                    algorithm,
+                    train_vis_x,
+                    train_vis_y,
+                    unseen_vis_x,
+                    unseen_vis_y,
+                    visualization_pca,
+                    args.output_dir,
+                    step=step,
+                    max_samples=500,
+                    batch_size=32)
 
             results = {
                 'step': step,
@@ -272,16 +303,17 @@ if __name__ == "__main__":
             }
 
             for key, val in checkpoint_vals.items():
-                learning_history.append({
-                    "step": step,
-                    "loss": results.get("loss"),
-                    "ce_loss": results.get("ce_loss"),
-                    "proto_loss": results.get("proto_loss"),
-                    "mem_loss": results.get("mem_loss")
-                })
                 results[key] = np.mean(val)
 
-            # print("Finished evaluation")
+            # JP added: save the actual averaged losses after results are populated.
+            learning_history.append({
+                "step": step,
+                "loss": results.get("loss"),
+                "ce_loss": results.get("ce_loss"),
+                "proto_loss": results.get("proto_loss"),
+                "mem_loss": results.get("mem_loss")
+            })
+
             print("Starting evaluation")
             eval_start = time.time()
 
@@ -291,22 +323,45 @@ if __name__ == "__main__":
                 print(f"Evaluating {name}...")
                 env_start = time.time()
 
-                acc = misc.accuracy(algorithm, loader, weights, device)
+                acc = misc.accuracy(
+                    algorithm,
+                    loader,
+                    weights,
+                    device)
 
                 env_time = time.time() - env_start
-                print(f"Finished {name}: acc={acc:.4f}, time={env_time:.2f}s")
 
-                results[name+'_acc'] = acc
+                print(
+                    f"Finished {name}: "
+                    f"acc={acc:.4f}, "
+                    f"time={env_time:.2f}s")
+
+                results[name + '_acc'] = acc
 
             total_eval_time = time.time() - eval_start
-            print(f"Finished evaluation. Total evaluation time: {total_eval_time:.2f}s")
-            results['mem_gb'] = torch.cuda.max_memory_allocated() / (1024.*1024.*1024.)
+
+            print(
+                f"Finished evaluation. "
+                f"Total evaluation time: {total_eval_time:.2f}s")
+
+            if torch.cuda.is_available():
+                results['mem_gb'] = (
+                    torch.cuda.max_memory_allocated()
+                    / (1024. * 1024. * 1024.)
+                )
+            else:
+                results['mem_gb'] = 0.0
 
             results_keys = sorted(results.keys())
+
             if results_keys != last_results_keys:
-                misc.print_row(results_keys, colwidth=12)
+                misc.print_row(
+                    results_keys,
+                    colwidth=12)
                 last_results_keys = results_keys
-            misc.print_row([results[key] for key in results_keys],
+
+            misc.print_row(
+                [results[key] for key in results_keys],
                 colwidth=12)
 
             results.update({
@@ -325,20 +380,34 @@ if __name__ == "__main__":
                     print(f"Type: {type(v)}")
                     print(f"Value: {v}")
 
-            epochs_path = os.path.join(args.output_dir, 'results.jsonl')
+            epochs_path = os.path.join(
+                args.output_dir,
+                'results.jsonl')
+
             with open(epochs_path, 'a') as f:
-                f.write(json.dumps(results, sort_keys=True) + "\n")
+                f.write(
+                    json.dumps(
+                        results,
+                        sort_keys=True) + "\n"
+                )
 
             algorithm_dict = algorithm.state_dict()
             start_step = step + 1
             checkpoint_vals = collections.defaultdict(lambda: [])
 
             if args.save_model_every_checkpoint:
-                save_checkpoint(f'model_step{step}.pkl')
+                save_checkpoint(
+                    f'model_step{step}.pkl')
 
-    plot_learning_dynamics(learning_history) # JP added
+    # JP added: save the learning-dynamics visualisation after training.
+    plot_learning_dynamics(
+        learning_history,
+        args.output_dir)
 
     save_checkpoint('model.pkl')
 
-    with open(os.path.join(args.output_dir, 'done'), 'w') as f:
+    with open(
+        os.path.join(args.output_dir, 'done'),
+        'w'
+    ) as f:
         f.write('done')
