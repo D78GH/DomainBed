@@ -5,42 +5,56 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
 def _get_visualisation_path(filename):
-    visualisation_dir = os.path.join(os.getcwd(), "visualisations")
+    visualisation_dir = os.path.join(args.output_dir, "visualisations")
     os.makedirs(visualisation_dir, exist_ok=True)
     return os.path.join(visualisation_dir, filename)
 
 @torch.no_grad()
-def prepare_prototype_pca(model, x, max_samples=1000):
+def _extract_features(model, x, batch_size=32):
     was_training = model.training
     model.eval()
-    features = F.normalize(model.featurizer(x), dim=1)
-    if len(features) > max_samples:
-        idx = torch.randperm(len(features), device=features.device)[:max_samples]
-        features = features[idx]
-    prototypes = F.normalize(model.prototypes, dim=2)
-    prototype_flat = prototypes.reshape(-1, prototypes.shape[-1])
-    combined = torch.cat([features, prototype_flat], dim=0).cpu().numpy()
-    pca = PCA(n_components=2)
-    pca.fit(combined)
+    device = next(model.parameters()).device
+    features = []
+    for i in range(0, len(x), batch_size):
+        batch = x[i:i + batch_size].to(device)
+        batch_features = model.featurizer(batch)
+        batch_features = F.normalize(batch_features, dim=1)
+        features.append(batch_features.cpu())
+        del batch
+        del batch_features
+    features = torch.cat(features, dim=0)
     if was_training:
         model.train()
+    return features
+
+@torch.no_grad()
+def prepare_prototype_pca(model, x, max_samples=1000, batch_size=32):
+    features = _extract_features(model, x, batch_size=batch_size)
+    if len(features) > max_samples:
+        idx = torch.randperm(len(features))[:max_samples]
+        features = features[idx]
+    prototypes = F.normalize(model.prototypes, dim=2).detach().cpu()
+    prototype_flat = prototypes.reshape(-1, prototypes.shape[-1])
+    combined = torch.cat([features, prototype_flat], dim=0).numpy()
+    pca = PCA(n_components=2)
+    pca.fit(combined)
     return pca
 
 @torch.no_grad()
-def plot_prototypes(model, x, y, pca, step=None, max_samples=1000):
+def plot_prototypes(model, x, y, pca, step=None, max_samples=1000, batch_size=32):
     was_training = model.training
     model.eval()
-    features = F.normalize(model.featurizer(x), dim=1)
-    if len(features) > max_samples:
-        idx = torch.randperm(len(features), device=features.device)[:max_samples]
-        features = features[idx]
+    if len(x) > max_samples:
+        idx = torch.randperm(len(x))[:max_samples]
+        x = x[idx]
         y = y[idx]
-    prototypes = F.normalize(model.prototypes, dim=2)
+    features = _extract_features(model, x, batch_size=batch_size)
+    prototypes = F.normalize(model.prototypes, dim=2).detach().cpu()
     prototype_flat = prototypes.reshape(-1, prototypes.shape[-1])
-    sample_2d = pca.transform(features.cpu().numpy())
-    prototype_2d = pca.transform(prototype_flat.cpu().numpy())
+    sample_2d = pca.transform(features.numpy())
+    prototype_2d = pca.transform(prototype_flat.numpy())
     fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(sample_2d[:, 0], sample_2d[:, 1], c=y.cpu().numpy(), cmap="tab10", alpha=0.35, s=25)
+    ax.scatter(sample_2d[:, 0], sample_2d[:, 1], c=y.numpy(), cmap="tab10", alpha=0.35, s=25)
     for c in range(model.num_classes):
         for k in range(model.num_prototypes):
             idx = c * model.num_prototypes + k
@@ -60,27 +74,27 @@ def plot_prototypes(model, x, y, pca, step=None, max_samples=1000):
         model.train()
 
 @torch.no_grad()
-def plot_domain_generalization(model, train_x, train_y, unseen_x, unseen_y, pca, step=None, max_samples=500):
+def plot_domain_generalization(model, train_x, train_y, unseen_x, unseen_y, pca, step=None, max_samples=500, batch_size=32):
     was_training = model.training
     model.eval()
-    train_features = F.normalize(model.featurizer(train_x), dim=1)
-    unseen_features = F.normalize(model.featurizer(unseen_x), dim=1)
-    if len(train_features) > max_samples:
-        idx = torch.randperm(len(train_features), device=train_features.device)[:max_samples]
-        train_features = train_features[idx]
+    if len(train_x) > max_samples:
+        idx = torch.randperm(len(train_x))[:max_samples]
+        train_x = train_x[idx]
         train_y = train_y[idx]
-    if len(unseen_features) > max_samples:
-        idx = torch.randperm(len(unseen_features), device=unseen_features.device)[:max_samples]
-        unseen_features = unseen_features[idx]
+    if len(unseen_x) > max_samples:
+        idx = torch.randperm(len(unseen_x))[:max_samples]
+        unseen_x = unseen_x[idx]
         unseen_y = unseen_y[idx]
-    prototypes = F.normalize(model.prototypes, dim=2)
+    train_features = _extract_features(model, train_x, batch_size=batch_size)
+    unseen_features = _extract_features(model, unseen_x, batch_size=batch_size)
+    prototypes = F.normalize(model.prototypes, dim=2).detach().cpu()
     prototype_flat = prototypes.reshape(-1, prototypes.shape[-1])
-    train_2d = pca.transform(train_features.cpu().numpy())
-    unseen_2d = pca.transform(unseen_features.cpu().numpy())
-    prototype_2d = pca.transform(prototype_flat.cpu().numpy())
+    train_2d = pca.transform(train_features.numpy())
+    unseen_2d = pca.transform(unseen_features.numpy())
+    prototype_2d = pca.transform(prototype_flat.numpy())
     fig, ax = plt.subplots(figsize=(11, 8))
-    ax.scatter(train_2d[:, 0], train_2d[:, 1], c=train_y.cpu().numpy(), cmap="tab10", alpha=0.20, s=25, marker="o", label="Training domain")
-    ax.scatter(unseen_2d[:, 0], unseen_2d[:, 1], c=unseen_y.cpu().numpy(), cmap="tab10", alpha=0.65, s=35, marker="^", edgecolor="black", linewidth=0.3, label="Unseen domain")
+    ax.scatter(train_2d[:, 0], train_2d[:, 1], c=train_y.numpy(), cmap="tab10", alpha=0.20, s=25, marker="o", label="Training domain")
+    ax.scatter(unseen_2d[:, 0], unseen_2d[:, 1], c=unseen_y.numpy(), cmap="tab10", alpha=0.65, s=35, marker="^", edgecolor="black", linewidth=0.3, label="Unseen domain")
     for c in range(model.num_classes):
         for k in range(model.num_prototypes):
             idx = c * model.num_prototypes + k

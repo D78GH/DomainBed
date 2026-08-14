@@ -204,13 +204,13 @@ if __name__ == "__main__":
             xs.append(x)
             ys.append(y)
             total += len(x)
-        return torch.cat(xs).to(device), torch.cat(ys).to(device)
+        return torch.cat(xs), torch.cat(ys)
 
     train_env_indices = [i for i in range(len(dataset)) if i not in args.test_envs]
     train_vis_x, train_vis_y = collect_visualization_data(in_splits[train_env_indices[0]][0], 1000)
     unseen_vis_x, unseen_vis_y = collect_visualization_data(out_splits[args.test_envs[0]][0], 1000)
     visualization_x = torch.cat([train_vis_x, unseen_vis_x], dim=0)
-    visualization_pca = prepare_prototype_pca(algorithm, visualization_x, max_samples=2000)
+    visualization_pca = prepare_prototype_pca(algorithm, visualization_x, max_samples=500, batch_size=32)
 
     train_minibatches_iterator = zip(*train_loaders)
     uda_minibatches_iterator = zip(*uda_loaders)
