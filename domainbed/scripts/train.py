@@ -301,10 +301,11 @@ if __name__ == "__main__":
                     visualization_x,
                     torch.cat([train_vis_y, unseen_vis_y]),
                     visualization_pca,
-                    args.output_dir,
                     step=step,
                     max_samples=500,
-                    batch_size=16
+                    batch_size=16,
+                    output_dir=args.output_dir,
+                    test_env=args.test_envs[0]
                 )
 
                 plot_domain_generalization(
@@ -314,10 +315,11 @@ if __name__ == "__main__":
                     unseen_vis_x,
                     unseen_vis_y,
                     visualization_pca,
-                    args.output_dir,
                     step=step,
                     max_samples=500,
-                    batch_size=16
+                    batch_size=16,
+                    output_dir=args.output_dir,
+                    test_env=args.test_envs[0]
                 )
 
                 print(f"Finished visualisations for step {step}")
