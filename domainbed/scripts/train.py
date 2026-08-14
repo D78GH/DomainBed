@@ -189,9 +189,27 @@ if __name__ == "__main__":
 
     algorithm.to(device)
 
+    # JP added: collect a small fixed set of samples for visualisation.
+    def collect_visualization_data(split, max_samples=1000):
+        loader = FastDataLoader(dataset=split, batch_size=64, num_workers=0)
+        xs = []
+        ys = []
+        total = 0
+        for x, y in loader:
+            remaining = max_samples - total
+            if remaining <= 0:
+                break
+            x = x[:remaining]
+            y = y[:remaining]
+            xs.append(x)
+            ys.append(y)
+            total += len(x)
+        if not xs:
+            raise ValueError("No samples available for visualisation.")
+        return torch.cat(xs), torch.cat(ys)
+
     # JP added: prepare training-domain and unseen-domain visualisation data.
     train_env_indices = [i for i in range(len(dataset)) if i not in args.test_envs]
-
     if len(train_env_indices) == 0:
         raise ValueError("No training environments available for visualisation.")
 
@@ -202,13 +220,6 @@ if __name__ == "__main__":
         out_splits[args.test_envs[0]][0], 1000)
 
     visualization_x = torch.cat([train_vis_x, unseen_vis_x], dim=0)
-
-    # JP added: fit PCA once so all visualisations use the same coordinate system.
-    visualization_pca = prepare_prototype_pca(
-        algorithm,
-        visualization_x,
-        max_samples=500,
-        batch_size=32)
 
     train_minibatches_iterator = zip(*train_loaders)
     uda_minibatches_iterator = zip(*uda_loaders)
@@ -235,7 +246,7 @@ if __name__ == "__main__":
         }
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
-    # JP added: store loss values for the learning-dynamics plot.
+    # JP added: store loss values for the learning-dynamics visualisation.
     learning_history = []
 
     last_results_keys = None
@@ -270,11 +281,21 @@ if __name__ == "__main__":
         for key, val in step_vals.items():
             checkpoint_vals[key].append(val)
 
-        # JP added: create prototype/domain visualisations at selected checkpoints.
+        # JP added: create visualisations at selected training checkpoints.
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
             visualisation_steps = {0, 2500, 5000, n_steps - 1}
 
             if step in visualisation_steps:
+                print(f"Creating visualisations for step {step}...")
+
+                # JP added: recompute PCA using the current learned representation.
+                visualization_pca = prepare_prototype_pca(
+                    algorithm,
+                    visualization_x,
+                    max_samples=500,
+                    batch_size=16
+                )
+
                 plot_prototypes(
                     algorithm,
                     visualization_x,
@@ -283,7 +304,8 @@ if __name__ == "__main__":
                     args.output_dir,
                     step=step,
                     max_samples=500,
-                    batch_size=32)
+                    batch_size=16
+                )
 
                 plot_domain_generalization(
                     algorithm,
@@ -295,7 +317,10 @@ if __name__ == "__main__":
                     args.output_dir,
                     step=step,
                     max_samples=500,
-                    batch_size=32)
+                    batch_size=16
+                )
+
+                print(f"Finished visualisations for step {step}")
 
             results = {
                 'step': step,
@@ -305,7 +330,7 @@ if __name__ == "__main__":
             for key, val in checkpoint_vals.items():
                 results[key] = np.mean(val)
 
-            # JP added: save the actual averaged losses after results are populated.
+            # JP added: record averaged losses for learning-dynamics visualisation.
             learning_history.append({
                 "step": step,
                 "loss": results.get("loss"),
@@ -327,14 +352,16 @@ if __name__ == "__main__":
                     algorithm,
                     loader,
                     weights,
-                    device)
+                    device
+                )
 
                 env_time = time.time() - env_start
 
                 print(
                     f"Finished {name}: "
                     f"acc={acc:.4f}, "
-                    f"time={env_time:.2f}s")
+                    f"time={env_time:.2f}s"
+                )
 
                 results[name + '_acc'] = acc
 
@@ -342,7 +369,8 @@ if __name__ == "__main__":
 
             print(
                 f"Finished evaluation. "
-                f"Total evaluation time: {total_eval_time:.2f}s")
+                f"Total evaluation time: {total_eval_time:.2f}s"
+            )
 
             if torch.cuda.is_available():
                 results['mem_gb'] = (
@@ -357,12 +385,14 @@ if __name__ == "__main__":
             if results_keys != last_results_keys:
                 misc.print_row(
                     results_keys,
-                    colwidth=12)
+                    colwidth=12
+                )
                 last_results_keys = results_keys
 
             misc.print_row(
                 [results[key] for key in results_keys],
-                colwidth=12)
+                colwidth=12
+            )
 
             results.update({
                 'hparams': hparams,
@@ -382,13 +412,15 @@ if __name__ == "__main__":
 
             epochs_path = os.path.join(
                 args.output_dir,
-                'results.jsonl')
+                'results.jsonl'
+            )
 
             with open(epochs_path, 'a') as f:
                 f.write(
                     json.dumps(
                         results,
-                        sort_keys=True) + "\n"
+                        sort_keys=True
+                    ) + "\n"
                 )
 
             algorithm_dict = algorithm.state_dict()
@@ -397,12 +429,15 @@ if __name__ == "__main__":
 
             if args.save_model_every_checkpoint:
                 save_checkpoint(
-                    f'model_step{step}.pkl')
+                    f'model_step{step}.pkl'
+                )
 
     # JP added: save the learning-dynamics visualisation after training.
-    plot_learning_dynamics(
-        learning_history,
-        args.output_dir)
+    if learning_history:
+        plot_learning_dynamics(
+            learning_history,
+            args.output_dir
+        )
 
     save_checkpoint('model.pkl')
 

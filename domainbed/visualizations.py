@@ -22,6 +22,8 @@ def _extract_features(model, x, batch_size=32):
         features.append(batch_features.cpu())
         del batch
         del batch_features
+    if not features:
+        raise ValueError("No features could be extracted for visualisation.")
     features = torch.cat(features, dim=0)
     if was_training:
         model.train()
@@ -121,14 +123,14 @@ def plot_learning_dynamics(history, output_dir=".", test_env=0):
         return
     steps = [x["step"] for x in history]
     fig, ax = plt.subplots(figsize=(10, 6))
-    if "loss" in history[0]:
-        ax.plot(steps, [x["loss"] for x in history], label="Total loss", linewidth=2)
-    if "ce_loss" in history[0]:
-        ax.plot(steps, [x["ce_loss"] for x in history], label="Classification loss")
-    if "proto_loss" in history[0]:
-        ax.plot(steps, [x["proto_loss"] for x in history], label="Prototype contrastive loss")
-    if "mem_loss" in history[0]:
-        ax.plot(steps, [x["mem_loss"] for x in history], label="Memory alignment loss")
+    if any(x.get("loss") is not None for x in history):
+        ax.plot(steps, [x["loss"] if x.get("loss") is not None else float("nan") for x in history], label="Total loss", linewidth=2)
+    if any(x.get("ce_loss") is not None for x in history):
+        ax.plot(steps, [x["ce_loss"] if x.get("ce_loss") is not None else float("nan") for x in history], label="Classification loss")
+    if any(x.get("proto_loss") is not None for x in history):
+        ax.plot(steps, [x["proto_loss"] if x.get("proto_loss") is not None else float("nan") for x in history], label="Prototype contrastive loss")
+    if any(x.get("mem_loss") is not None for x in history):
+        ax.plot(steps, [x["mem_loss"] if x.get("mem_loss") is not None else float("nan") for x in history], label="Memory alignment loss")
     ax.set_xlabel("Training step")
     ax.set_ylabel("Loss")
     ax.set_title("MLPMCL Learning Dynamics")
