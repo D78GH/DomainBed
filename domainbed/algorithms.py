@@ -2564,7 +2564,7 @@ class MLPMCL(ERM):
     def __init__(self,input_shape,num_classes,num_domains,hparams):
         super().__init__(input_shape,num_classes,num_domains,hparams)
         self.num_classes=num_classes
-        self.num_prototypes=hparams.get("num_prototypes",3)
+        self.num_prototypes=hparams.get("num_prototypes",4)
         feat_dim=self.featurizer.n_outputs
         self.prototypes=nn.Parameter(torch.randn(num_classes,self.num_prototypes,feat_dim)*0.02)
         self.temperature=hparams.get("proto_temperature",0.07)
@@ -2644,7 +2644,7 @@ class MLPMCL_softmax(ERM):
     def __init__(self,input_shape,num_classes,num_domains,hparams):
         super().__init__(input_shape,num_classes,num_domains,hparams)
         self.num_classes=num_classes
-        self.num_prototypes=hparams.get("num_prototypes",3)
+        self.num_prototypes=hparams.get("num_prototypes",4)
         feat_dim=self.featurizer.n_outputs
         self.prototypes=nn.Parameter(torch.randn(num_classes,self.num_prototypes,feat_dim)*0.02)
         self.temperature=hparams.get("proto_temperature",0.07)
@@ -2724,7 +2724,7 @@ class MLDPMCL_softmax(ERM):
     def __init__(self,input_shape,num_classes,num_domains,hparams):
         super().__init__(input_shape,num_classes,num_domains,hparams)
         self.num_classes=num_classes
-        self.num_prototypes=hparams.get("num_prototypes",3)
+        self.num_prototypes=hparams.get("num_prototypes",4)
         feat_dim=self.featurizer.n_outputs
         self.prototypes=nn.Parameter(torch.randn(num_classes,self.num_prototypes,feat_dim)*0.02)
         self.temperature=hparams.get("proto_temperature",0.07)

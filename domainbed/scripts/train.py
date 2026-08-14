@@ -20,7 +20,7 @@ from domainbed import hparams_registry
 from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
-from domainbed.visualizations import prepare_prototype_pca, plot_prototypes, plot_domain_generalization, plot_learning_dynamics # JP added
+from domainbed.visualizations import prepare_prototype_pca, plot_prototypes, plot_domain_generalization, plot_prototype_utilisation, plot_prototype_class_heatmap, plot_prototype_mutual_information, plot_learning_dynamics, compute_prototype_mi # JP added
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Domain generalization')
@@ -283,12 +283,11 @@ if __name__ == "__main__":
 
         # JP added: create visualisations at selected training checkpoints.
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
-            visualisation_steps = {0, 2500, 5000, n_steps - 1}
+            visualisation_steps={0,1000,2500,5000,n_steps-1}
 
             if step in visualisation_steps:
                 print(f"Creating visualisations for step {step}...")
 
-                # JP added: recompute PCA using the current learned representation.
                 visualization_pca = prepare_prototype_pca(
                     algorithm,
                     visualization_x,
@@ -322,6 +321,28 @@ if __name__ == "__main__":
                     test_env=args.test_envs[0]
                 )
 
+                plot_prototype_utilisation(
+                    algorithm,
+                    train_vis_x,
+                    train_vis_y,
+                    step=step,
+                    max_samples=1000,
+                    batch_size=16,
+                    output_dir=args.output_dir,
+                    test_env=args.test_envs[0]
+                )
+
+                plot_prototype_class_heatmap(
+                    algorithm,
+                    train_vis_x,
+                    train_vis_y,
+                    step=step,
+                    max_samples=1000,
+                    batch_size=16,
+                    output_dir=args.output_dir,
+                    test_env=args.test_envs[0]
+                )
+
                 print(f"Finished visualisations for step {step}")
 
             results = {
@@ -333,12 +354,22 @@ if __name__ == "__main__":
                 results[key] = np.mean(val)
 
             # JP added: record averaged losses for learning-dynamics visualisation.
+            prototype_mi = compute_prototype_mi(
+                algorithm,
+                train_vis_x,
+                train_vis_y,
+                batch_size=16
+            )
+
+            results["prototype_mi"] = prototype_mi
+
             learning_history.append({
                 "step": step,
                 "loss": results.get("loss"),
                 "ce_loss": results.get("ce_loss"),
                 "proto_loss": results.get("proto_loss"),
-                "mem_loss": results.get("mem_loss")
+                "mem_loss": results.get("mem_loss"),
+                "prototype_mi": prototype_mi
             })
 
             print("Starting evaluation")
@@ -434,11 +465,17 @@ if __name__ == "__main__":
                     f'model_step{step}.pkl'
                 )
 
-    # JP added: save the learning-dynamics visualisation after training.
+    # JP added: save the learning-dynamics and prototype MI visualisations after training.
     if learning_history:
         plot_learning_dynamics(
             learning_history,
-            args.output_dir
+            args.output_dir,
+            test_env=args.test_envs[0]
+        )
+        plot_prototype_mutual_information(
+            learning_history,
+            args.output_dir,
+            test_env=args.test_envs[0]
         )
 
     save_checkpoint('model.pkl')
