@@ -20,6 +20,7 @@ from domainbed import hparams_registry
 from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
+from domainbed.visualizations import prepare_prototype_pca, plot_prototypes, plot_domain_generalization, plot_learning_dynamics # JP added
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Domain generalization')
@@ -188,6 +189,29 @@ if __name__ == "__main__":
 
     algorithm.to(device)
 
+    # JP added
+    def collect_visualization_data(split, max_samples=1000):
+        loader = FastDataLoader(dataset=split, batch_size=64, num_workers=0)
+        xs = []
+        ys = []
+        total = 0
+        for x, y in loader:
+            remaining = max_samples - total
+            if remaining <= 0:
+                break
+            x = x[:remaining]
+            y = y[:remaining]
+            xs.append(x)
+            ys.append(y)
+            total += len(x)
+        return torch.cat(xs).to(device), torch.cat(ys).to(device)
+
+    train_env_indices = [i for i in range(len(dataset)) if i not in args.test_envs]
+    train_vis_x, train_vis_y = collect_visualization_data(in_splits[train_env_indices[0]][0], 1000)
+    unseen_vis_x, unseen_vis_y = collect_visualization_data(out_splits[args.test_envs[0]][0], 1000)
+    visualization_x = torch.cat([train_vis_x, unseen_vis_x], dim=0)
+    visualization_pca = prepare_prototype_pca(algorithm, visualization_x, max_samples=2000)
+
     train_minibatches_iterator = zip(*train_loaders)
     uda_minibatches_iterator = zip(*uda_loaders)
     checkpoint_vals = collections.defaultdict(lambda: [])
@@ -209,6 +233,8 @@ if __name__ == "__main__":
             "model_dict": algorithm.state_dict()
         }
         torch.save(save_dict, os.path.join(args.output_dir, filename))
+
+    learning_history = [] # JP added
 
     last_results_keys = None
     for step in range(start_step, n_steps):
@@ -232,13 +258,27 @@ if __name__ == "__main__":
         for key, val in step_vals.items():
             checkpoint_vals[key].append(val)
 
+        # JP added
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
+            visualisation_steps = {0, 2500, 5000, n_steps - 1}
+            if step in visualisation_steps:
+                plot_prototypes(algorithm, visualization_x, torch.cat([train_vis_y, unseen_vis_y]), visualization_pca, step=step)
+                plot_domain_generalization(algorithm, train_vis_x, train_vis_y, unseen_vis_x, unseen_vis_y, visualization_pca, step=step)
+
+
             results = {
                 'step': step,
                 'epoch': step / steps_per_epoch,
             }
 
             for key, val in checkpoint_vals.items():
+                learning_history.append({
+                    "step": step,
+                    "loss": results.get("loss"),
+                    "ce_loss": results.get("ce_loss"),
+                    "proto_loss": results.get("proto_loss"),
+                    "mem_loss": results.get("mem_loss")
+                })
                 results[key] = np.mean(val)
 
             # print("Finished evaluation")
@@ -295,6 +335,8 @@ if __name__ == "__main__":
 
             if args.save_model_every_checkpoint:
                 save_checkpoint(f'model_step{step}.pkl')
+
+    plot_learning_dynamics(learning_history) # JP added
 
     save_checkpoint('model.pkl')
 
