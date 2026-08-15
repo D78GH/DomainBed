@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# JP added prototype-related visualization plots denoted by start and end tags and "JP added*" comments.
 
 import argparse
 import collections
@@ -144,22 +145,14 @@ if __name__ == "__main__":
     if args.task == "domain_adaptation" and len(uda_splits) == 0:
         raise ValueError("Not enough unlabeled samples for domain adaptation.")
 
-    print("N_WORKERS =", dataset.N_WORKERS)
-
     train_loaders = [InfiniteDataLoader(
         dataset=env,
         weights=env_weights,
         batch_size=hparams['batch_size'],
         # num_workers=dataset.N_WORKERS)
-        num_workers=0)
+        num_workers=0) # JP added
         for i, (env, env_weights) in enumerate(in_splits)
         if i not in args.test_envs]
-
-    print("Train loaders created")
-
-    print("Fetching first batch...")
-    batch = next(iter(train_loaders[0]))
-    print("First batch fetched")
 
     uda_loaders = [InfiniteDataLoader(
         dataset=env,
@@ -189,6 +182,7 @@ if __name__ == "__main__":
 
     algorithm.to(device)
 
+    # ===== START: ADDED CODE =====
     # JP added: collect a small fixed set of samples for visualisation.
     def collect_visualization_data(split, max_samples=1000):
         loader = FastDataLoader(dataset=split, batch_size=64, num_workers=0)
@@ -220,15 +214,13 @@ if __name__ == "__main__":
         out_splits[args.test_envs[0]][0], 1000)
 
     visualization_x = torch.cat([train_vis_x, unseen_vis_x], dim=0)
+    # ===== END: ADDED CODE =====
 
     train_minibatches_iterator = zip(*train_loaders)
     uda_minibatches_iterator = zip(*uda_loaders)
     checkpoint_vals = collections.defaultdict(lambda: [])
 
-    steps_per_epoch = min([
-        len(env) / hparams['batch_size']
-        for env, _ in in_splits
-    ])
+    steps_per_epoch = min([len(env)/hparams['batch_size'] for env,_ in in_splits])
 
     n_steps = args.steps or dataset.N_STEPS
     checkpoint_freq = args.checkpoint_freq or dataset.CHECKPOINT_FREQ
@@ -246,44 +238,33 @@ if __name__ == "__main__":
         }
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
-    # JP added: store loss values for the learning-dynamics visualisation.
-    learning_history = []
-
+    learning_history = [] # JP added
+    
     last_results_keys = None
-
     for step in range(start_step, n_steps):
-        print("STEP START", step)
+        print("STEP START", step) # JP added
         step_start_time = time.time()
-
-        print("Getting minibatch...")
-        minibatches_device = [
-            (x.to(device), y.to(device))
-            for x, y in next(train_minibatches_iterator)
-        ]
-        print("Minibatch moved to device")
-
+        minibatches_device = [(x.to(device), y.to(device))
+            for x, y in next(train_minibatches_iterator)]
         if args.task == "domain_adaptation":
-            uda_device = [
-                x.to(device)
-                for x, _ in next(uda_minibatches_iterator)
-            ]
+            uda_device = [x.to(device)
+                for x, _ in next(uda_minibatches_iterator)]
         else:
             uda_device = None
-
-        print("Calling algorithm.update...")
+        print("Calling algorithm.update...") # JP added
         step_vals = algorithm.update(minibatches_device, uda_device)
-        print("algorithm.update finished")
-
-        checkpoint_vals['step_time'].append(
-            time.time() - step_start_time
-        )
+        print("algorithm.update finished") # JP added
+        checkpoint_vals['step_time'].append(time.time() - step_start_time)
 
         for key, val in step_vals.items():
             checkpoint_vals[key].append(val)
 
-        # JP added: create visualisations at selected training checkpoints.
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
-            visualisation_steps={0,1000,2500,5000,n_steps-1}
+            
+            # ===== START: ADDED CODE =====
+            # Create visualisations at the first step, 8th checkpoint, and last step to compare how well it has learnt and prototype utilisation
+            # and usefulness for domain generalisation
+            visualisation_steps = {0, 8 * checkpoint_freq, n_steps - 1}
 
             if step in visualisation_steps:
                 print(f"Creating visualisations for step {step}...")
@@ -343,7 +324,8 @@ if __name__ == "__main__":
                     test_env=args.test_envs[0]
                 )
 
-                print(f"Finished visualisations for step {step}")
+                print(f"Finished visualizations for step {step}")
+                # ===== END: ADDED CODE =====
 
             results = {
                 'step': step,
@@ -353,6 +335,7 @@ if __name__ == "__main__":
             for key, val in checkpoint_vals.items():
                 results[key] = np.mean(val)
 
+            # ===== START: ADDED CODE =====
             # JP added: record averaged losses for learning-dynamics visualisation.
             prototype_mi = compute_prototype_mi(
                 algorithm,
@@ -371,90 +354,30 @@ if __name__ == "__main__":
                 "mem_loss": results.get("mem_loss"),
                 "prototype_mi": prototype_mi
             })
-
-            print("Starting evaluation")
-            eval_start = time.time()
+            # ===== END: ADDED CODE =====
 
             evals = zip(eval_loader_names, eval_loaders, eval_weights)
-
             for name, loader, weights in evals:
-                print(f"Evaluating {name}...")
-                env_start = time.time()
+                acc = misc.accuracy(algorithm, loader, weights, device)
+                results[name+'_acc'] = acc
 
-                acc = misc.accuracy(
-                    algorithm,
-                    loader,
-                    weights,
-                    device
-                )
-
-                env_time = time.time() - env_start
-
-                print(
-                    f"Finished {name}: "
-                    f"acc={acc:.4f}, "
-                    f"time={env_time:.2f}s"
-                )
-
-                results[name + '_acc'] = acc
-
-            total_eval_time = time.time() - eval_start
-
-            print(
-                f"Finished evaluation. "
-                f"Total evaluation time: {total_eval_time:.2f}s"
-            )
-
-            if torch.cuda.is_available():
-                results['mem_gb'] = (
-                    torch.cuda.max_memory_allocated()
-                    / (1024. * 1024. * 1024.)
-                )
-            else:
-                results['mem_gb'] = 0.0
+            results['mem_gb'] = torch.cuda.max_memory_allocated() / (1024.*1024.*1024.)
 
             results_keys = sorted(results.keys())
-
             if results_keys != last_results_keys:
-                misc.print_row(
-                    results_keys,
-                    colwidth=12
-                )
+                misc.print_row(results_keys, colwidth=12)
                 last_results_keys = results_keys
-
-            misc.print_row(
-                [results[key] for key in results_keys],
-                colwidth=12
-            )
+            misc.print_row([results[key] for key in results_keys],
+                colwidth=12)
 
             results.update({
                 'hparams': hparams,
-                'args': vars(args),
-                'hparams_seed': args.hparams_seed,
-                'seed': args.seed,
-                'trial_seed': args.trial_seed,
+                'args': vars(args)
             })
 
-            for k, v in results.items():
-                try:
-                    json.dumps(v)
-                except TypeError:
-                    print(f"Non-serializable field: {k}")
-                    print(f"Type: {type(v)}")
-                    print(f"Value: {v}")
-
-            epochs_path = os.path.join(
-                args.output_dir,
-                'results.jsonl'
-            )
-
+            epochs_path = os.path.join(args.output_dir, 'results.jsonl')
             with open(epochs_path, 'a') as f:
-                f.write(
-                    json.dumps(
-                        results,
-                        sort_keys=True
-                    ) + "\n"
-                )
+                f.write(json.dumps(results, sort_keys=True) + "\n")
 
             algorithm_dict = algorithm.state_dict()
             start_step = step + 1
@@ -465,6 +388,7 @@ if __name__ == "__main__":
                     f'model_step{step}.pkl'
                 )
 
+    # ===== START: ADDED CODE =====
     # JP added: save the learning-dynamics and prototype MI visualisations after training.
     if learning_history:
         plot_learning_dynamics(
@@ -477,11 +401,9 @@ if __name__ == "__main__":
             args.output_dir,
             test_env=args.test_envs[0]
         )
+    # ===== END: ADDED CODE =====
 
     save_checkpoint('model.pkl')
 
-    with open(
-        os.path.join(args.output_dir, 'done'),
-        'w'
-    ) as f:
+    with open(os.path.join(args.output_dir, 'done'), 'w') as f:
         f.write('done')
