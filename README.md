@@ -1,12 +1,24 @@
 # This is a copy of the DomainBed research suite developed by Facebook and includes additional algorithms that have been implemented and evaluated within this codebase.
 
+Cloned github repo: https://github.com/facebookresearch/DomainBed/tree/main
+
+Custom enhancements:
+
+The below algorithm classes have been added to the algorithms.py:
+* 'MLPMCL', # Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
+* 'MLPMCL_softmax', # Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
+* 'MLDPMCL_softmax', # Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
+* 'FishMLPMCL' # Meta Learning Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
+
+The train.py script has been enhanced with 4 prototype visualization plots to assess how well the prototypes generated did.
+
+The hparams_registry has been updated for custom sweep parameters for the FishMLPMCL model.
+
+The command_launchers.py has a slurm function added to utilise the University of Edinburgh Slurm Workload Manager facility to run jobs in parallel.
+
 # Welcome to DomainBed
 
 DomainBed is a PyTorch suite containing benchmark datasets and algorithms for domain generalization, as introduced in [In Search of Lost Domain Generalization](https://arxiv.org/abs/2007.01434).
-
-## Current results
-
-![Result table](domainbed/results/2020_10_06_7df6f06/results.png)
 
 Full results for [commit 7df6f06](https://github.com/facebookresearch/DomainBed/tree/7df6f06a6f9062284812a3f174c306218932c5e4) in LaTeX format available [here](domainbed/results/2020_10_06_7df6f06/results.tex).
 
