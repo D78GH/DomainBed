@@ -30,29 +30,6 @@ from domainbed import model_selection
 from domainbed.lib.query import Q
 import warnings
 
-def compare_hparams(hparams1, hparams2, name1="config 1", name2="config 2"):
-    """
-    Print only hyperparameters that differ between two configurations.
-    """
-    print("\n=== HYPERPARAMETER DIFFERENCES ===")
-
-    keys = sorted(set(hparams1.keys()) | set(hparams2.keys()))
-
-    differences = False
-
-    for k in keys:
-        v1 = hparams1.get(k)
-        v2 = hparams2.get(k)
-
-        if v1 != v2:
-            differences = True
-            print(f"{k}:")
-            print(f"  {name1}: {v1}")
-            print(f"  {name2}: {v2}")
-
-    if not differences:
-        print("No differences found.")
-
 def todo_rename(records, selection_method, latex):
 
     grouped_records = reporting.get_grouped_records(records).map(lambda group:
@@ -161,81 +138,15 @@ if __name__ == "__main__":
 
         for group in records:
             print(f"trial_seed: {group['trial_seed']}")
-
             best_hparams = selection_method.hparams_accs(group['records'])
-
-            if len(best_hparams) == 0:
-                print("\tNo valid hyperparameter selection for this method")
-                print("-" * 60)
-                continue
-
-            # Best hyperparameter configuration
-            best_val_acc, best_records = best_hparams[0]
-            best_record = best_records[0]
-
-            test_env = group["test_env"]
-            best_test_acc = best_record[f"env{test_env}_out_acc"]
-
-            print("\n\tBEST HYPERPARAMETERS")
-            print(f"\tvalidation_acc: {best_val_acc}")
-            print(f"\ttest_env: {test_env}")
-            print(f"\ttest_accuracy: {best_test_acc}")
-
-            print("\thparams:")
-            for k, v in sorted(best_record["hparams"].items()):
-                print(f"\t\t{k}: {v}")
-
-            print("\toutput_dirs:")
-            output_dirs = best_records.select("args.output_dir").unique()
-            for output_dir in output_dirs:
-                print(f"\t\t{output_dir}")
-
-
-            # Compare against second-best configuration if available
-            if len(best_hparams) > 1:
-
-                second_val_acc, second_records = best_hparams[1]
-                second_record = second_records[0]
-
-                second_test_acc = second_record[f"env{test_env}_out_acc"]
-
-                print("\n\tSECOND BEST")
-                print(f"\tvalidation_acc: {second_val_acc}")
-                print(f"\ttest_accuracy: {second_test_acc}")
-
-                print("\n\t=== HYPERPARAMETER DIFFERENCES ===")
-
-                best_hp = best_record["hparams"]
-                second_hp = second_record["hparams"]
-
-                keys = sorted(set(best_hp.keys()) | set(second_hp.keys()))
-
-                differences = False
-
-                for k in keys:
-                    best_value = best_hp.get(k)
-                    second_value = second_hp.get(k)
-
-                    if best_value != second_value:
-                        differences = True
-                        print(f"\t{k}:")
-                        print(f"\t\tbest:        {best_value}")
-                        print(f"\t\tsecond best: {second_value}")
-
-                if not differences:
-                    print("\tNo hyperparameter differences")
-
-            print("\n" + "-" * 60)
-
-                # best_hparams = selection_method.hparams_accs(group['records'])
-                # for run_acc, hparam_records in best_hparams:
-                #     print(f"\t{run_acc}")
-                #     for r in hparam_records:
-                #         assert(r['hparams'] == hparam_records[0]['hparams'])
-                #     print("\t\thparams:")
-                #     for k, v in sorted(hparam_records[0]['hparams'].items()):
-                #         print('\t\t\t{}: {}'.format(k, v))
-                #     print("\t\toutput_dirs:")
-                #     output_dirs = hparam_records.select('args.output_dir').unique()
-                #     for output_dir in output_dirs:
-                #         print(f"\t\t\t{output_dir}")
+            for run_acc, hparam_records in best_hparams:
+                print(f"\t{run_acc}")
+                for r in hparam_records:
+                    assert(r['hparams'] == hparam_records[0]['hparams'])
+                print("\t\thparams:")
+                for k, v in sorted(hparam_records[0]['hparams'].items()):
+                    print('\t\t\t{}: {}'.format(k, v))
+                print("\t\toutput_dirs:")
+                output_dirs = hparam_records.select('args.output_dir').unique()
+                for output_dir in output_dirs:
+                    print(f"\t\t\t{output_dir}")
