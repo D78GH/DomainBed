@@ -14,15 +14,52 @@ def get_visualisation_path(output_dir,test_env,filename):
 def get_class_colors(num_classes):
     return [plt.cm.tab10(c%10) for c in range(num_classes)]
 
+def get_model_network(model):
+    # MLPMCL: featurizer/prototypes are directly on the algorithm.
+    if hasattr(model,"featurizer") and hasattr(model,"prototypes") and hasattr(model,"num_prototypes"):
+        return model
+    # FishMLPMCL: featurizer/prototypes are inside model.network.
+    if hasattr(model,"network"):
+        network=model.network
+        if hasattr(network,"featurizer") and hasattr(network,"prototypes") and hasattr(network,"num_prototypes"):
+            return network
+    raise AttributeError(
+        f"{type(model).__name__} does not expose the required "
+        "featurizer/prototypes/num_prototypes interface."
+    )
+
+def get_featurizer(model):
+    return get_model_network(model).featurizer
+
+def get_prototypes(model):
+    return get_model_network(model).prototypes
+
+def get_num_classes(model):
+    if hasattr(model,"num_classes"):
+        return model.num_classes
+    network=get_model_network(model)
+    if hasattr(network,"num_classes"):
+        return network.num_classes
+    raise AttributeError(f"Could not determine num_classes for {type(model).__name__}")
+
+def get_num_prototypes(model):
+    network=get_model_network(model)
+    if hasattr(network,"num_prototypes"):
+        return network.num_prototypes
+    if hasattr(model,"num_prototypes"):
+        return model.num_prototypes
+    raise AttributeError(f"Could not determine num_prototypes for {type(model).__name__}")
+
 @torch.no_grad()
-def _extract_features(model,x,batch_size=32):
+def extract_features(model,x,batch_size=32):
     was_training=model.training
     model.eval()
     device=next(model.parameters()).device
+    featurizer=get_featurizer(model)
     features=[]
     for i in range(0,len(x),batch_size):
         batch=x[i:i+batch_size].to(device)
-        batch_features=F.normalize(model.featurizer(batch),dim=1)
+        batch_features=F.normalize(featurizer(batch),dim=1)
         features.append(batch_features.cpu())
         del batch,batch_features
     if not features:
@@ -34,8 +71,8 @@ def _extract_features(model,x,batch_size=32):
 
 @torch.no_grad()
 def get_prototype_assignments(model,x,batch_size=32):
-    features=_extract_features(model,x,batch_size=batch_size)
-    prototypes=F.normalize(model.prototypes,dim=2).detach().cpu()
+    features=extract_features(model,x,batch_size=batch_size)
+    prototypes=F.normalize(get_prototypes(model),dim=2).detach().cpu()
     prototype_flat=prototypes.reshape(-1,prototypes.shape[-1])
     similarity=features@prototype_flat.T
     assignments=similarity.argmax(dim=1)
@@ -48,11 +85,11 @@ def compute_prototype_mi(model,x,y,batch_size=32):
 
 @torch.no_grad()
 def prepare_prototype_pca(model,x,max_samples=500,batch_size=32):
-    features=_extract_features(model,x,batch_size=batch_size)
+    features=extract_features(model,x,batch_size=batch_size)
     if len(features)>max_samples:
         idx=torch.randperm(len(features))[:max_samples]
         features=features[idx]
-    prototypes=F.normalize(model.prototypes,dim=2).detach().cpu()
+    prototypes=F.normalize(get_prototypes(model),dim=2).detach().cpu()
     prototype_flat=prototypes.reshape(-1,prototypes.shape[-1])
     combined=torch.cat([features,prototype_flat],dim=0).numpy()
     pca=PCA(n_components=2)
@@ -67,23 +104,25 @@ def plot_prototypes(model,x,y,pca,step=None,max_samples=500,batch_size=32,output
         idx=torch.randperm(len(x))[:max_samples]
         x=x[idx]
         y=y[idx]
-    features=_extract_features(model,x,batch_size=batch_size)
-    prototypes=F.normalize(model.prototypes,dim=2).detach().cpu()
+    features=extract_features(model,x,batch_size=batch_size)
+    prototypes=F.normalize(get_prototypes(model),dim=2).detach().cpu()
     prototype_flat=prototypes.reshape(-1,prototypes.shape[-1])
     sample_2d=pca.transform(features.numpy())
     prototype_2d=pca.transform(prototype_flat.numpy())
+    num_classes=get_num_classes(model)
+    num_prototypes=get_num_prototypes(model)
     prototype_markers=["X","P","D","*","^","s","v","<",">","p"]
-    class_colors=get_class_colors(model.num_classes)
+    class_colors=get_class_colors(num_classes)
     fig,ax=plt.subplots(figsize=(16,8))
     sample_colors=[class_colors[int(label)%len(class_colors)] for label in y.numpy()]
     ax.scatter(sample_2d[:,0],sample_2d[:,1],c=sample_colors,alpha=1.0,s=32,marker="o",edgecolor="none",linewidths=0,zorder=1)
-    for c in range(model.num_classes):
-        for k in range(model.num_prototypes):
-            idx=c*model.num_prototypes+k
+    for c in range(num_classes):
+        for k in range(num_prototypes):
+            idx=c*num_prototypes+k
             marker=prototype_markers[k%len(prototype_markers)]
             ax.scatter(prototype_2d[idx,0],prototype_2d[idx,1],marker=marker,s=420,color=class_colors[c],alpha=1.0,edgecolor="black",linewidth=2,zorder=10)
-    class_handles=[ax.scatter([],[],marker="o",s=100,color=class_colors[c],alpha=1.0,label=f"Class {c}") for c in range(model.num_classes)]
-    prototype_handles=[ax.scatter([],[],marker=prototype_markers[k%len(prototype_markers)],s=180,color="white",alpha=1.0,edgecolor="black",linewidth=2,label=f"P{k+1}") for k in range(model.num_prototypes)]
+    class_handles=[ax.scatter([],[],marker="o",s=100,color=class_colors[c],alpha=1.0,label=f"Class {c}") for c in range(num_classes)]
+    prototype_handles=[ax.scatter([],[],marker=prototype_markers[k%len(prototype_markers)],s=180,color="white",alpha=1.0,edgecolor="black",linewidth=2,label=f"P{k+1}") for k in range(num_prototypes)]
     legend1=ax.legend(handles=class_handles,title="Classes",loc="upper right",frameon=True)
     ax.add_artist(legend1)
     ax.legend(handles=prototype_handles,title="Prototype index",loc="lower right",frameon=True)
@@ -117,28 +156,30 @@ def plot_domain_generalization(model,train_x,train_y,unseen_x,unseen_y,pca,step=
         idx=torch.randperm(len(unseen_x))[:max_samples]
         unseen_x=unseen_x[idx]
         unseen_y=unseen_y[idx]
-    train_features=_extract_features(model,train_x,batch_size=batch_size)
-    unseen_features=_extract_features(model,unseen_x,batch_size=batch_size)
-    prototypes=F.normalize(model.prototypes,dim=2).detach().cpu()
+    train_features=extract_features(model,train_x,batch_size=batch_size)
+    unseen_features=extract_features(model,unseen_x,batch_size=batch_size)
+    prototypes=F.normalize(get_prototypes(model),dim=2).detach().cpu()
     prototype_flat=prototypes.reshape(-1,prototypes.shape[-1])
     train_2d=pca.transform(train_features.numpy())
     unseen_2d=pca.transform(unseen_features.numpy())
     prototype_2d=pca.transform(prototype_flat.numpy())
+    num_classes=get_num_classes(model)
+    num_prototypes=get_num_prototypes(model)
     prototype_markers=["X","P","D","*","s","v","<",">","p","h"]
-    class_colors=get_class_colors(model.num_classes)
+    class_colors=get_class_colors(num_classes)
     fig,ax=plt.subplots(figsize=(16,8))
     train_colors=[class_colors[int(label)%len(class_colors)] for label in train_y.cpu().numpy()]
     unseen_colors=[class_colors[int(label)%len(class_colors)] for label in unseen_y.cpu().numpy()]
     ax.scatter(train_2d[:,0],train_2d[:,1],c=train_colors,alpha=1.0,s=30,marker="o",edgecolor="none",linewidths=0,zorder=1)
     ax.scatter(unseen_2d[:,0],unseen_2d[:,1],c=unseen_colors,alpha=1.0,s=42,marker="^",edgecolor="black",linewidth=0.5,zorder=2)
-    for c in range(model.num_classes):
-        for k in range(model.num_prototypes):
-            idx=c*model.num_prototypes+k
+    for c in range(num_classes):
+        for k in range(num_prototypes):
+            idx=c*num_prototypes+k
             marker=prototype_markers[k%len(prototype_markers)]
             ax.scatter(prototype_2d[idx,0],prototype_2d[idx,1],marker=marker,s=420,color=class_colors[c],alpha=1.0,edgecolor="black",linewidth=2,zorder=10)
-    class_handles=[ax.scatter([],[],marker="o",s=100,color=class_colors[c],alpha=1.0,label=f"Class {c}") for c in range(model.num_classes)]
+    class_handles=[ax.scatter([],[],marker="o",s=100,color=class_colors[c],alpha=1.0,label=f"Class {c}") for c in range(num_classes)]
     domain_handles=[ax.scatter([],[],marker="o",s=100,color="gray",alpha=1.0,label="Training domain"),ax.scatter([],[],marker="^",s=100,color="gray",alpha=1.0,edgecolor="black",label="Unseen domain")]
-    prototype_handles=[ax.scatter([],[],marker=prototype_markers[k%len(prototype_markers)],s=180,color="white",alpha=1.0,edgecolor="black",linewidth=2,label=f"P{k+1}") for k in range(model.num_prototypes)]
+    prototype_handles=[ax.scatter([],[],marker=prototype_markers[k%len(prototype_markers)],s=180,color="white",alpha=1.0,edgecolor="black",linewidth=2,label=f"P{k+1}") for k in range(num_prototypes)]
     legend1=ax.legend(handles=class_handles,title="Classes",loc="upper right",frameon=True)
     ax.add_artist(legend1)
     legend2=ax.legend(handles=domain_handles,title="Domain",loc="lower left",frameon=True)
@@ -169,11 +210,13 @@ def plot_prototype_utilisation(model,x,y,step=None,max_samples=2000,batch_size=3
         x=x[idx]
         y=y[idx]
     _,assignments,_=get_prototype_assignments(model,x,batch_size=batch_size)
-    n_prototypes=model.num_classes*model.num_prototypes
+    num_classes=get_num_classes(model)
+    num_prototypes=get_num_prototypes(model)
+    n_prototypes=num_classes*num_prototypes
     counts=torch.bincount(assignments,minlength=n_prototypes).numpy()
-    labels=[f"C{c}-P{k+1}" for c in range(model.num_classes) for k in range(model.num_prototypes)]
-    class_colors=get_class_colors(model.num_classes)
-    colors=[class_colors[c] for c in range(model.num_classes) for _ in range(model.num_prototypes)]
+    labels=[f"C{c}-P{k+1}" for c in range(num_classes) for k in range(num_prototypes)]
+    class_colors=get_class_colors(num_classes)
+    colors=[class_colors[c] for c in range(num_classes) for _ in range(num_prototypes)]
     fig,ax=plt.subplots(figsize=(12,6))
     ax.bar(np.arange(n_prototypes),counts,color=colors,edgecolor="black",linewidth=0.7)
     ax.set_xticks(np.arange(n_prototypes))
@@ -199,22 +242,24 @@ def plot_prototype_class_heatmap(model,x,y,step=None,max_samples=2000,batch_size
     _,assignments,_=get_prototype_assignments(model,x,batch_size=batch_size)
     assignments=assignments.numpy()
     labels=y.cpu().numpy()
-    n_prototypes=model.num_classes*model.num_prototypes
-    matrix=np.zeros((n_prototypes,model.num_classes),dtype=np.float32)
+    num_classes=get_num_classes(model)
+    num_prototypes=get_num_prototypes(model)
+    n_prototypes=num_classes*num_prototypes
+    matrix=np.zeros((n_prototypes,num_classes),dtype=np.float32)
     for p in range(n_prototypes):
         mask=assignments==p
         if mask.sum()>0:
-            for c in range(model.num_classes):
+            for c in range(num_classes):
                 matrix[p,c]=np.mean(labels[mask]==c)
-    prototype_labels=[f"C{c}-P{k+1}" for c in range(model.num_classes) for k in range(model.num_prototypes)]
+    prototype_labels=[f"C{c}-P{k+1}" for c in range(num_classes) for k in range(num_prototypes)]
     fig,ax=plt.subplots(figsize=(10,max(6,n_prototypes*0.35)))
     im=ax.imshow(matrix,cmap="Blues",vmin=0,vmax=1,aspect="auto")
-    ax.set_xticks(np.arange(model.num_classes))
-    ax.set_xticklabels([f"Class {c}" for c in range(model.num_classes)])
+    ax.set_xticks(np.arange(num_classes))
+    ax.set_xticklabels([f"Class {c}" for c in range(num_classes)])
     ax.set_yticks(np.arange(n_prototypes))
     ax.set_yticklabels(prototype_labels)
     for i in range(n_prototypes):
-        for j in range(model.num_classes):
+        for j in range(num_classes):
             value=matrix[i,j]
             ax.text(j,i,f"{value:.2f}",ha="center",va="center",color="white" if value>0.5 else "black",fontsize=9)
     ax.set_xlabel("Ground-truth class")
