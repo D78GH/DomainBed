@@ -16,6 +16,12 @@ The hparams_registry has been updated for custom sweep parameters for the FishML
 
 The command_launchers.py has a slurm function added to utilise the University of Edinburgh Slurm Workload Manager facility to run jobs in parallel.
 
+The networks.py has a WholeFish_prototype function added as the backbone network used within the FishMLPMCL model.
+
+The download.py originally used non publicly accessible google drive links to obtain Office Home, PACS and VLCS. The code has been replaced with publicly accessible links and new code to download the data.
+
+A data folder has been created for purposes of transporting the Office Home, PACS and VLCS datasets onto the University MLP server to run tests on. However can be deleted in future.
+
 # Welcome to DomainBed
 
 DomainBed is a PyTorch suite containing benchmark datasets and algorithms for domain generalization, as introduced in [In Search of Lost Domain Generalization](https://arxiv.org/abs/2007.01434).
