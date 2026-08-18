@@ -4,11 +4,13 @@ Cloned github repo: https://github.com/facebookresearch/DomainBed/tree/main
 
 Custom enhancements:
 
+18/08/26 - Recent update - MLPMCL has been renamed to SEAL (Soft Exponential Adaptive Learning) which is not yet reflected in the code.
+
 The below algorithm classes have been added to the algorithms.py:
-* 'MLPMCL', # Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
-* 'MLPMCL_softmax', # Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
-* 'MLDPMCL_softmax', # Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
-* 'FishMLPMCL' # Meta Learning Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
+* 'MLPMCL', Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
+* 'MLPMCL_softmax', Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
+* 'MLDPMCL_softmax', Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
+* 'FishMLPMCL' Meta Learning Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
 
 The train.py script has been enhanced with 4 prototype visualization plots to assess how well the prototypes generated did.
 
