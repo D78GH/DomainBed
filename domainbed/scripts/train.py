@@ -22,6 +22,8 @@ from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
 from domainbed.visualizations import prepare_prototype_pca, plot_prototypes, plot_domain_generalization, plot_prototype_utilisation, plot_prototype_class_heatmap, plot_prototype_mutual_information, plot_learning_dynamics, compute_prototype_mi # JP added
+from domainbed.diagnostics import SemanticConsistencyTracker
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Domain generalization')
@@ -183,37 +185,37 @@ if __name__ == "__main__":
     algorithm.to(device)
 
     # ===== START: ADDED CODE =====
-    # JP added: collect a small fixed set of samples for visualisation.
-    def collect_visualization_data(split, max_samples=1000):
-        loader = FastDataLoader(dataset=split, batch_size=64, num_workers=0)
-        xs = []
-        ys = []
-        total = 0
-        for x, y in loader:
-            remaining = max_samples - total
-            if remaining <= 0:
-                break
-            x = x[:remaining]
-            y = y[:remaining]
-            xs.append(x)
-            ys.append(y)
-            total += len(x)
-        if not xs:
-            raise ValueError("No samples available for visualisation.")
-        return torch.cat(xs), torch.cat(ys)
+    # JP added: semantic consistency diagnostic tracker
+    diagnostics_enabled = args.algorithm in {"MLPMCL", "FishMLPMCL"}
 
-    # JP added: prepare training-domain and unseen-domain visualisation data.
-    train_env_indices = [i for i in range(len(dataset)) if i not in args.test_envs]
-    if len(train_env_indices) == 0:
-        raise ValueError("No training environments available for visualisation.")
-
-    train_vis_x, train_vis_y = collect_visualization_data(
-        in_splits[train_env_indices[0]][0], 1000)
-
-    unseen_vis_x, unseen_vis_y = collect_visualization_data(
-        out_splits[args.test_envs[0]][0], 1000)
-
-    visualization_x = torch.cat([train_vis_x, unseen_vis_x], dim=0)
+    if diagnostics_enabled:
+        semantic_tracker = SemanticConsistencyTracker(print_every=300)
+        # JP added: collect a small fixed set of samples for visualisation.
+        def collect_visualization_data(split, max_samples=1000):
+            loader = FastDataLoader(dataset=split, batch_size=64, num_workers=0)
+            xs, ys, total = [], [], 0
+            for x, y in loader:
+                remaining = max_samples - total
+                if remaining <= 0:
+                    break
+                x, y = x[:remaining], y[:remaining]
+                xs.append(x)
+                ys.append(y)
+                total += len(x)
+            if not xs:
+                raise ValueError("No samples available for visualisation.")
+            return torch.cat(xs), torch.cat(ys)
+        # JP added: prepare training-domain and unseen-domain visualisation data.
+        train_env_indices = [i for i in range(len(dataset)) if i not in args.test_envs]
+        if len(train_env_indices) == 0:
+            raise ValueError("No training environments available for visualisation.")
+        train_vis_x, train_vis_y = collect_visualization_data(in_splits[train_env_indices[0]][0], 1000)
+        unseen_vis_x, unseen_vis_y = collect_visualization_data(out_splits[args.test_envs[0]][0], 1000)
+        visualization_x = torch.cat([train_vis_x, unseen_vis_x], dim=0)
+        learning_history = []
+    else:
+        semantic_tracker = None
+        learning_history = []
     # ===== END: ADDED CODE =====
 
     train_minibatches_iterator = zip(*train_loaders)
@@ -254,6 +256,27 @@ if __name__ == "__main__":
         print("Calling algorithm.update...") # JP added
         step_vals = algorithm.update(minibatches_device, uda_device)
         print("algorithm.update finished") # JP added
+
+        # ===== START: ADDED CODE =====
+        # JP added - measures the representations produced by the model after the current training step.
+        if diagnostics_enabled and step % 300 == 0:
+            algorithm.eval()
+            with torch.no_grad():
+                diagnostic_features = []
+                diagnostic_labels = []
+                for x_diag, y_diag in minibatches_device:
+                    network_output = algorithm.network(x_diag)
+                    features_diag = network_output[1]
+                    diagnostic_features.append(features_diag)
+                    diagnostic_labels.append(y_diag)
+                semantic_tracker.update(
+                    domain_features=diagnostic_features,
+                    domain_labels=diagnostic_labels,
+                    global_prototypes=algorithm.network.prototypes
+                )
+            algorithm.train()
+        # ===== END: ADDED CODE =====
+
         checkpoint_vals['step_time'].append(time.time() - step_start_time)
 
         for key, val in step_vals.items():
@@ -264,67 +287,28 @@ if __name__ == "__main__":
             # ===== START: ADDED CODE =====
             # Create visualisations at the first step, 8th checkpoint, and last step to compare how well it has learnt and prototype utilisation
             # and usefulness for domain generalisation
-            visualisation_steps = {0, 8 * checkpoint_freq, n_steps - 1}
-
-            if step in visualisation_steps:
-                print(f"Creating visualisations for step {step}...")
-
-                visualization_pca = prepare_prototype_pca(
-                    algorithm,
-                    visualization_x,
-                    max_samples=500,
-                    batch_size=16
-                )
-
-                plot_prototypes(
-                    algorithm,
-                    visualization_x,
-                    torch.cat([train_vis_y, unseen_vis_y]),
-                    visualization_pca,
-                    step=step,
-                    max_samples=500,
-                    batch_size=16,
-                    output_dir=args.output_dir,
-                    test_env=args.test_envs[0]
-                )
-
-                plot_domain_generalization(
-                    algorithm,
-                    train_vis_x,
-                    train_vis_y,
-                    unseen_vis_x,
-                    unseen_vis_y,
-                    visualization_pca,
-                    step=step,
-                    max_samples=500,
-                    batch_size=16,
-                    output_dir=args.output_dir,
-                    test_env=args.test_envs[0]
-                )
-
-                plot_prototype_utilisation(
-                    algorithm,
-                    train_vis_x,
-                    train_vis_y,
-                    step=step,
-                    max_samples=1000,
-                    batch_size=16,
-                    output_dir=args.output_dir,
-                    test_env=args.test_envs[0]
-                )
-
-                plot_prototype_class_heatmap(
-                    algorithm,
-                    train_vis_x,
-                    train_vis_y,
-                    step=step,
-                    max_samples=1000,
-                    batch_size=16,
-                    output_dir=args.output_dir,
-                    test_env=args.test_envs[0]
-                )
-
-                print(f"Finished visualizations for step {step}")
+            if diagnostics_enabled:
+                visualisation_steps = {0, 8 * checkpoint_freq, n_steps - 1}
+                if step in visualisation_steps:
+                    print(f"Creating visualisations for step {step}...")
+                    visualization_pca = prepare_prototype_pca(
+                        algorithm, visualization_x, max_samples=500, batch_size=16)
+                    plot_prototypes(
+                        algorithm, visualization_x,
+                        torch.cat([train_vis_y, unseen_vis_y]),
+                        visualization_pca, step=step, max_samples=500, batch_size=16,
+                        output_dir=args.output_dir, test_env=args.test_envs[0])
+                    plot_domain_generalization(
+                        algorithm, train_vis_x, train_vis_y, unseen_vis_x, unseen_vis_y,
+                        visualization_pca, step=step, max_samples=500, batch_size=16,
+                        output_dir=args.output_dir, test_env=args.test_envs[0])
+                    plot_prototype_utilisation(
+                        algorithm, train_vis_x, train_vis_y, step=step, max_samples=1000,
+                        batch_size=16, output_dir=args.output_dir, test_env=args.test_envs[0])
+                    plot_prototype_class_heatmap(
+                        algorithm, train_vis_x, train_vis_y, step=step, max_samples=1000,
+                        batch_size=16, output_dir=args.output_dir, test_env=args.test_envs[0])
+                    print(f"Finished visualizations for step {step}")
                 # ===== END: ADDED CODE =====
 
             results = {
@@ -337,23 +321,18 @@ if __name__ == "__main__":
 
             # ===== START: ADDED CODE =====
             # JP added: record averaged losses for learning-dynamics visualisation.
-            prototype_mi = compute_prototype_mi(
-                algorithm,
-                train_vis_x,
-                train_vis_y,
-                batch_size=16
-            )
-
-            results["prototype_mi"] = prototype_mi
-
-            learning_history.append({
-                "step": step,
-                "loss": results.get("loss"),
-                "ce_loss": results.get("ce_loss"),
-                "proto_loss": results.get("proto_loss"),
-                "mem_loss": results.get("mem_loss"),
-                "prototype_mi": prototype_mi
-            })
+            if diagnostics_enabled:
+                prototype_mi = compute_prototype_mi(
+                    algorithm, train_vis_x, train_vis_y, batch_size=16)
+                results["prototype_mi"] = prototype_mi
+                learning_history.append({
+                    "step": step,
+                    "loss": results.get("loss"),
+                    "ce_loss": results.get("ce_loss"),
+                    "proto_loss": results.get("proto_loss"),
+                    "mem_loss": results.get("mem_loss"),
+                    "prototype_mi": prototype_mi
+                })
             # ===== END: ADDED CODE =====
 
             evals = zip(eval_loader_names, eval_loaders, eval_weights)
@@ -390,17 +369,18 @@ if __name__ == "__main__":
 
     # ===== START: ADDED CODE =====
     # JP added: save the learning-dynamics and prototype MI visualisations after training.
-    if learning_history:
-        plot_learning_dynamics(
-            learning_history,
-            args.output_dir,
-            test_env=args.test_envs[0]
-        )
-        plot_prototype_mutual_information(
-            learning_history,
-            args.output_dir,
-            test_env=args.test_envs[0]
-        )
+    if diagnostics_enabled:
+        if learning_history:
+            plot_learning_dynamics(
+                learning_history, args.output_dir, test_env=args.test_envs[0])
+            plot_prototype_mutual_information(
+                learning_history, args.output_dir, test_env=args.test_envs[0])
+        semantic_history = semantic_tracker.get_history()
+        semantic_history_path = os.path.join(
+            args.output_dir, "semantic_consistency.json")
+        with open(semantic_history_path, "w") as f:
+            json.dump(semantic_history, f, indent=2)
+        print(f"Saved semantic consistency diagnostics to {semantic_history_path}")
     # ===== END: ADDED CODE =====
 
     save_checkpoint('model.pkl')
