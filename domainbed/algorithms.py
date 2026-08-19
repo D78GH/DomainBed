@@ -32,7 +32,6 @@ ALGORITHMS = [
     'MLDG',
     'SEAL', # Soft Exponential Adaptive Learning using logsumexp
     'SEAL_softmax', # Soft Exponential Adaptive Learning with softmax weighting (lr 5e-5)
-    'MLDPMCL_softmax', # Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
     'FishSEAL' # Meta Learning Soft Exponential Adaptive Learning using logsumexp
     'CORAL',
     'MMD',
