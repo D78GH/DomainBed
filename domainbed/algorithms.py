@@ -30,10 +30,10 @@ ALGORITHMS = [
     'GroupDRO',
     'Mixup',
     'MLDG',
-    'MLPMCL', # Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
-    'MLPMCL_softmax', # Multi-Learnable Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
+    'SEAL', # Soft Exponential Adaptive Learning using logsumexp
+    'SEAL_softmax', # Soft Exponential Adaptive Learning with softmax weighting (lr 5e-5)
     'MLDPMCL_softmax', # Multi-Learnable Diverse Prototype Memory Contrastive Learning with softmax weighting (lr 5e-5)
-    'FishMLPMCL' # Meta Learning Multi-Learnable Prototype Memory Contrastive Learning using logsumexp
+    'FishSEAL' # Meta Learning Soft Exponential Adaptive Learning using logsumexp
     'CORAL',
     'MMD',
     'DANN',
@@ -2554,7 +2554,7 @@ class ADRMX(Algorithm):
     def predict(self, x):
         return self.network(x)
 
-class MLPMCL(ERM):
+class SEAL(ERM):
     """
     Multiple Learnable Prototype Memory Contrastive Learning
     Inspired by learnable prototypes: Li et al, Prototype Memory and Contrastive Learning Based Unsupervised Anomaly Detection for Time Series, 2026
@@ -2634,7 +2634,7 @@ class MLPMCL(ERM):
             "mem_loss":mem_loss.item()
         }
 
-class MLPMCL_softmax(ERM):
+class SEAL_softmax(ERM):
     """
     Multiple Learnable Prototype Memory Contrastive Learning
     Inspired by learnable prototypes: Li et al, Prototype Memory and Contrastive Learning Based Unsupervised Anomaly Detection for Time Series, 2026
@@ -2805,7 +2805,7 @@ class MLDPMCL_softmax(ERM):
         self.optimizer.step()
         return {"loss":loss.item(),"ce_loss":ce.item(),"proto_loss":proto_loss.item(),"mem_loss":mem_loss.item(),"div_loss":div_loss.item()}
 
-class FishMLPMCL(Algorithm):
+class FishSEAL(Algorithm):
     def __init__(self,input_shape,num_classes,num_domains,hparams):
         super().__init__(input_shape,num_classes,num_domains,hparams)
         self.input_shape=input_shape
