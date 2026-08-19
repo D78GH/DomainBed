@@ -186,7 +186,7 @@ if __name__ == "__main__":
 
     # ===== START: ADDED CODE =====
     # JP added: semantic consistency diagnostic tracker
-    diagnostics_enabled = args.algorithm in {"MLPMCL", "FishMLPMCL"}
+    diagnostics_enabled = args.algorithm in {"SEAL", "FishSEAL"}
 
     if diagnostics_enabled:
         semantic_tracker = SemanticConsistencyTracker(print_every=300)
