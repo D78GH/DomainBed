@@ -239,8 +239,6 @@ if __name__ == "__main__":
             "model_dict": algorithm.state_dict()
         }
         torch.save(save_dict, os.path.join(args.output_dir, filename))
-
-    learning_history = [] # JP added
     
     last_results_keys = None
     for step in range(start_step, n_steps):
@@ -258,21 +256,39 @@ if __name__ == "__main__":
         print("algorithm.update finished") # JP added
 
         # ===== START: ADDED CODE =====
-        # JP added - measures the representations produced by the model after the current training step.
+        # JP added: semantic consistency + held-out-domain diagnostic.
+        # This block is completely disabled unless diagnostics_enabled=True.
         if diagnostics_enabled and step % 300 == 0:
             algorithm.eval()
             with torch.no_grad():
                 diagnostic_features = []
                 diagnostic_labels = []
                 for x_diag, y_diag in minibatches_device:
+                    # Prototype models return:
+                    # logits, features
                     network_output = algorithm.network(x_diag)
                     features_diag = network_output[1]
                     diagnostic_features.append(features_diag)
                     diagnostic_labels.append(y_diag)
+                if hasattr(algorithm, "prototypes"):
+                    global_prototypes = algorithm.prototypes
+                elif hasattr(algorithm.network, "prototypes"):
+                    global_prototypes = algorithm.network.prototypes
+                else:
+                    raise AttributeError(
+                        "Diagnostics enabled, but no global prototypes "
+                        "were found on the algorithm or its network."
+                    )
+                target_x = unseen_vis_x.to(device)
+                target_y = unseen_vis_y.to(device)
+                target_logits = algorithm.predict(target_x)
+                target_predictions = target_logits.argmax(dim=1)
+                target_accuracy = (target_predictions == target_y).float().mean().item()
                 semantic_tracker.update(
                     domain_features=diagnostic_features,
                     domain_labels=diagnostic_labels,
-                    global_prototypes=algorithm.network.prototypes
+                    global_prototypes=global_prototypes,
+                    target_accuracy=target_accuracy
                 )
             algorithm.train()
         # ===== END: ADDED CODE =====
@@ -283,7 +299,7 @@ if __name__ == "__main__":
             checkpoint_vals[key].append(val)
 
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
-            
+    
             # ===== START: ADDED CODE =====
             # Create visualisations at the first step, 8th checkpoint, and last step to compare how well it has learnt and prototype utilisation
             # and usefulness for domain generalisation
@@ -321,18 +337,12 @@ if __name__ == "__main__":
 
             # ===== START: ADDED CODE =====
             # JP added: record averaged losses for learning-dynamics visualisation.
-            if diagnostics_enabled:
-                prototype_mi = compute_prototype_mi(
-                    algorithm, train_vis_x, train_vis_y, batch_size=16)
-                results["prototype_mi"] = prototype_mi
-                learning_history.append({
-                    "step": step,
-                    "loss": results.get("loss"),
-                    "ce_loss": results.get("ce_loss"),
-                    "proto_loss": results.get("proto_loss"),
-                    "mem_loss": results.get("mem_loss"),
-                    "prototype_mi": prototype_mi
-                })
+            # JP added: include semantic diagnostic measurements
+            if diagnostics_enabled and semantic_tracker.history:
+                latest_semantic = semantic_tracker.history[-1]
+                results["batch_global_similarity"] = (latest_semantic["batch_global_similarity"])
+                results["cross_domain_similarity"] = (latest_semantic["cross_domain_similarity"])
+                results["target_accuracy"] = (latest_semantic["target_accuracy"])
             # ===== END: ADDED CODE =====
 
             evals = zip(eval_loader_names, eval_loaders, eval_weights)

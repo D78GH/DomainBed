@@ -107,6 +107,7 @@ class SemanticConsistencyTracker:
             for j in range(i + 1, num_domains):
 
                 domain_a = domain_class_protos[i]
+
                 domain_b = domain_class_protos[j]
 
                 shared_classes = (
@@ -117,6 +118,7 @@ class SemanticConsistencyTracker:
                 for c in shared_classes:
 
                     proto_a = domain_a[c]
+
                     proto_b = domain_b[c]
 
                     similarity = torch.dot(
@@ -138,7 +140,8 @@ class SemanticConsistencyTracker:
         self,
         domain_features,
         domain_labels,
-        global_prototypes
+        global_prototypes,
+        target_accuracy=None
     ):
         """
         domain_features:
@@ -149,6 +152,11 @@ class SemanticConsistencyTracker:
 
         global_prototypes:
             model's global class prototypes
+
+        target_accuracy:
+            Classification accuracy on the held-out
+            target domain. This is diagnostic only and
+            does not affect training.
         """
 
         self.step_count += 1
@@ -199,17 +207,23 @@ class SemanticConsistencyTracker:
         # --------------------------------------------------
 
         result = {
-            "step": self.step_count,
+            "step":
+                self.step_count,
+
             "batch_global_similarity":
                 batch_global_similarity,
+
             "cross_domain_similarity":
-                cross_domain_similarity
+                cross_domain_similarity,
+
+            "target_accuracy":
+                target_accuracy
         }
 
         self.history.append(result)
 
         # --------------------------------------------------
-        # Print
+        # Print diagnostics
         # --------------------------------------------------
 
         if self.step_count % self.print_every == 0:
@@ -231,6 +245,13 @@ class SemanticConsistencyTracker:
                 "Cross-Domain Same-Class Similarity: "
                 f"{cross_domain_similarity:.4f}"
             )
+
+            if target_accuracy is not None:
+
+                print(
+                    "Held-Out Domain Accuracy: "
+                    f"{target_accuracy:.4f}"
+                )
 
         return result
 
