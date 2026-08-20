@@ -23,8 +23,6 @@ The networks.py file has a WholeFish_prototype function added as the backbone ne
 
 The download.py file originally specified non publicly accessible google drive links to obtain Office Home, PACS and VLCS. The code has been replaced with publicly accessible links and new code to download the data.
 
-A data folder has been created for purposes of transporting the Office Home, PACS and VLCS datasets onto the University MLP server to run tests on. However can be deleted in future.
-
 All further information below was derived from the original github repo:
 
 # Welcome to DomainBed
