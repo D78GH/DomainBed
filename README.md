@@ -9,17 +9,23 @@ The below algorithm classes have been added to the algorithms.py:
 * 'SEAL_softmax', Soft Exponential Adaptive Learning with softmax weighting
 * 'FishSEAL' Fish Meta Learning Soft Exponential Adaptive Learning using logsumexp
 
-The train.py script has been enhanced with 4 prototype visualization plots (uncomment to use) to assess how well the prototypes generated did. Also, similarity diagnostics have been added.
+The visualizations.py file was newly created to output prototype visualization plots.
 
-The hparams_registry has been updated for custom sweep parameters for the FishSEAL model.
+The diagnostics.py file was newly created to report similarity-based diagnostics.
 
-The command_launchers.py has a slurm function added to utilise the University of Edinburgh Slurm Workload Manager facility to run jobs in parallel.
+The train.py file has been enhanced with function calls to output the visualizations (Uncomment to use) and diagnostics.
 
-The networks.py has a WholeFish_prototype function added as the backbone network used within the FishSEAL model.
+The hparams_registry.py file has been updated for custom sweep parameters for the FishSEAL model.
 
-The download.py originally used non publicly accessible google drive links to obtain Office Home, PACS and VLCS. The code has been replaced with publicly accessible links and new code to download the data.
+The command_launchers.py file has a slurm function added to utilise the University of Edinburgh Slurm Workload Manager facility to run jobs in parallel.
+
+The networks.py file has a WholeFish_prototype function added as the backbone network used within the FishSEAL model.
+
+The download.py file originally specified non publicly accessible google drive links to obtain Office Home, PACS and VLCS. The code has been replaced with publicly accessible links and new code to download the data.
 
 A data folder has been created for purposes of transporting the Office Home, PACS and VLCS datasets onto the University MLP server to run tests on. However can be deleted in future.
+
+All further information below was derived from the original github repo:
 
 # Welcome to DomainBed
 
