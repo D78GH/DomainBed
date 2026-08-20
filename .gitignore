@@ -8,3 +8,4 @@ domainbed/results/*
 domainbed/misc/test_sweep_data/*
 domainbed/test/*
 domainbed/scripts/download_old.py
+.DS_Store
