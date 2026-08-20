@@ -15,11 +15,11 @@ The diagnostics.py file was newly created to report similarity-based diagnostics
 
 The train.py file has been enhanced with function calls to output the visualizations (Uncomment to use) and diagnostics.
 
-The hparams_registry.py file has been updated with custom sweep parameters for the Fish+SEAL model.
+The hparams_registry.py file has been updated for custom sweep parameters for the FishSEAL model.
 
 The command_launchers.py file has a slurm function added to utilise the University of Edinburgh Slurm Workload Manager facility to run jobs in parallel.
 
-The networks.py file has a WholeFish_prototype function added as the backbone network used within the Fish+SEAL model.
+The networks.py file has a WholeFish_prototype function added as the backbone network used within the FishSEAL model.
 
 The download.py file originally specified non publicly accessible google drive links to obtain Office Home, PACS and VLCS. The code has been replaced with publicly accessible links and new code to download the data.
 
