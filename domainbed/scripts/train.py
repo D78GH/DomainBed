@@ -300,32 +300,33 @@ if __name__ == "__main__":
 
         if (step % checkpoint_freq == 0) or (step == n_steps - 1):
     
-            # ===== START: ADDED CODE =====
-            # Create visualisations at the first step, 8th checkpoint, and last step to compare how well it has learnt and prototype utilisation
-            # and usefulness for domain generalisation
-            if diagnostics_enabled:
-                visualisation_steps = {0, 8 * checkpoint_freq, n_steps - 1}
-                if step in visualisation_steps:
-                    print(f"Creating visualisations for step {step}...")
-                    visualization_pca = prepare_prototype_pca(
-                        algorithm, visualization_x, max_samples=500, batch_size=16)
-                    plot_prototypes(
-                        algorithm, visualization_x,
-                        torch.cat([train_vis_y, unseen_vis_y]),
-                        visualization_pca, step=step, max_samples=500, batch_size=16,
-                        output_dir=args.output_dir, test_env=args.test_envs[0])
-                    plot_domain_generalization(
-                        algorithm, train_vis_x, train_vis_y, unseen_vis_x, unseen_vis_y,
-                        visualization_pca, step=step, max_samples=500, batch_size=16,
-                        output_dir=args.output_dir, test_env=args.test_envs[0])
-                    plot_prototype_utilisation(
-                        algorithm, train_vis_x, train_vis_y, step=step, max_samples=1000,
-                        batch_size=16, output_dir=args.output_dir, test_env=args.test_envs[0])
-                    plot_prototype_class_heatmap(
-                        algorithm, train_vis_x, train_vis_y, step=step, max_samples=1000,
-                        batch_size=16, output_dir=args.output_dir, test_env=args.test_envs[0])
-                    print(f"Finished visualizations for step {step}")
-                # ===== END: ADDED CODE =====
+            # # Uncomment to create visualisations
+            # # ===== START: ADDED CODE =====
+            # # Create visualisations at the first step, 8th checkpoint, and last step to compare how well it has learnt and prototype utilisation
+            # # and usefulness for domain generalisation
+            # if diagnostics_enabled:
+            #     visualisation_steps = {0, 8 * checkpoint_freq, n_steps - 1}
+            #     if step in visualisation_steps:
+            #         print(f"Creating visualisations for step {step}...")
+            #         visualization_pca = prepare_prototype_pca(
+            #             algorithm, visualization_x, max_samples=500, batch_size=16)
+            #         plot_prototypes(
+            #             algorithm, visualization_x,
+            #             torch.cat([train_vis_y, unseen_vis_y]),
+            #             visualization_pca, step=step, max_samples=500, batch_size=16,
+            #             output_dir=args.output_dir, test_env=args.test_envs[0])
+            #         plot_domain_generalization(
+            #             algorithm, train_vis_x, train_vis_y, unseen_vis_x, unseen_vis_y,
+            #             visualization_pca, step=step, max_samples=500, batch_size=16,
+            #             output_dir=args.output_dir, test_env=args.test_envs[0])
+            #         plot_prototype_utilisation(
+            #             algorithm, train_vis_x, train_vis_y, step=step, max_samples=1000,
+            #             batch_size=16, output_dir=args.output_dir, test_env=args.test_envs[0])
+            #         plot_prototype_class_heatmap(
+            #             algorithm, train_vis_x, train_vis_y, step=step, max_samples=1000,
+            #             batch_size=16, output_dir=args.output_dir, test_env=args.test_envs[0])
+            #         print(f"Finished visualizations for step {step}")
+            #     # ===== END: ADDED CODE =====
 
             results = {
                 'step': step,

@@ -6,10 +6,10 @@ Custom enhancements:
 
 The below algorithm classes have been added to the algorithms.py:
 * 'SEAL', Soft Exponential Adaptive Learning using logsumexp
-* 'SEAL_softmax', Soft Exponential Adaptive Learning with softmax weighting (lr 5e-5)
+* 'SEAL_softmax', Soft Exponential Adaptive Learning with softmax weighting
 * 'FishSEAL' Fish Meta Learning Soft Exponential Adaptive Learning using logsumexp
 
-The train.py script has been enhanced with 4 prototype visualization plots to assess how well the prototypes generated did. Also, similarity diagnostics have been added.
+The train.py script has been enhanced with 4 prototype visualization plots (uncomment to use) to assess how well the prototypes generated did. Also, similarity diagnostics have been added.
 
 The hparams_registry has been updated for custom sweep parameters for the FishSEAL model.
 
